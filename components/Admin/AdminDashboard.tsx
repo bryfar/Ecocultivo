@@ -1,0 +1,817 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { useStore, Order } from '../../context/StoreContext';
+import { 
+  LayoutDashboard, ShoppingBag, ListOrdered, CreditCard, Users, PieChart, 
+  Settings, LogOut, Bell, Filter, ChevronDown, MoreHorizontal,
+  X, Truck, Package, CheckCircle, Clock, Ban, Plus, Trash2, TrendingUp, DollarSign, User, Save, Database, Loader2
+} from 'lucide-react';
+import Logo from '../ui/Logo';
+
+interface AdminDashboardProps {
+  onNavigate: (page: any) => void;
+}
+
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
+  const { orders, products, user, logout, updateOrderStatus, addProduct, deleteProduct, getAnalytics, updateUserProfile, generateHistoricalOrders } = useStore();
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [salesTimeRange, setSalesTimeRange] = useState<'weekly' | 'monthly' | 'annual'>('annual');
+  const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Interactive UI States
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  
+  // Refs for click outside
+  const profileRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  // Settings Form State
+  const [settingsForm, setSettingsForm] = useState({
+      name: user?.name || '',
+      phone: user?.phone || ''
+  });
+
+  // Product Form State
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    price: '',
+    category: 'Verduras',
+    image: 'https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?q=80&w=2670&auto=format&fit=crop'
+  });
+
+  const analytics = getAnalytics();
+
+  // Handle Click Outside for dropdowns
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+        setShowProfileMenu(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleLogout = () => {
+    logout();
+    onNavigate('login');
+  };
+
+  const handleAddProduct = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newProduct.name && newProduct.price) {
+        addProduct({
+            name: newProduct.name,
+            price: parseFloat(newProduct.price),
+            category: newProduct.category,
+            image: newProduct.image
+        });
+        setShowAddProduct(false);
+        setNewProduct({ name: '', price: '', category: 'Verduras', image: 'https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?q=80&w=2670&auto=format&fit=crop' });
+    }
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+      e.preventDefault();
+      await updateUserProfile(settingsForm.name, settingsForm.phone);
+      setShowSettingsModal(false);
+  };
+
+  const handleGenerateData = async () => {
+      if(window.confirm('¿Desea generar 50 órdenes de venta históricas para probar los gráficos?')) {
+          setIsGenerating(true);
+          try {
+             await generateHistoricalOrders();
+          } catch (error) {
+             console.error("Error generating data", error);
+             alert("Error generando datos. Asegúrate de tener permisos.");
+          } finally {
+             setIsGenerating(false);
+          }
+      }
+  }
+
+  // Calculate Real Chart Data from Orders
+  const getChartData = () => {
+      const now = new Date();
+      let labels: string[] = [];
+      let values: number[] = [];
+      
+      if (salesTimeRange === 'annual') {
+          // Annual: Last 12 months
+          labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+          values = new Array(12).fill(0);
+          
+          orders.forEach(order => {
+              const d = new Date(order.date);
+              if (d.getFullYear() === now.getFullYear() && order.paymentStatus === 'Pagado') {
+                  values[d.getMonth()] += order.total;
+              }
+          });
+
+      } else if (salesTimeRange === 'monthly') {
+          // Monthly: Bucket into 4 weeks of current month
+          labels = ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4', 'Sem 5'];
+          values = new Array(5).fill(0);
+          
+          orders.forEach(order => {
+              const d = new Date(order.date);
+              if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && order.paymentStatus === 'Pagado') {
+                  const day = d.getDate();
+                  const week = Math.floor((day - 1) / 7);
+                  if (week < 5) values[week] += order.total;
+              }
+          });
+
+      } else {
+          // Weekly: Last 7 days
+          labels = [];
+          values = [];
+          
+          // Generate labels for last 7 days
+          for (let i = 6; i >= 0; i--) {
+              const d = new Date(now);
+              d.setDate(now.getDate() - i);
+              const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+              labels.push(days[d.getDay()]);
+              
+              // Sum orders for this day
+              const dayTotal = orders.reduce((sum, order) => {
+                  const od = new Date(order.date);
+                  if (od.getDate() === d.getDate() && od.getMonth() === d.getMonth() && order.paymentStatus === 'Pagado') {
+                      return sum + order.total;
+                  }
+                  return sum;
+              }, 0);
+              values.push(dayTotal);
+          }
+      }
+
+      const max = Math.max(...values, 100) * 1.1; // Add 10% headroom
+      return { labels, values, max };
+  };
+
+  const chartData = getChartData();
+
+  // Dynamic Notifications Logic
+  const getNotifications = () => {
+      const pendingOrders = orders.filter(o => o.status === 'Pendiente').length;
+      const lowStock = products.filter(p => p.sales > 50).length; // Mock logic for low stock
+      
+      const notifs = [];
+      if (pendingOrders > 0) notifs.push({ title: 'Pedidos Pendientes', msg: `Tienes ${pendingOrders} pedidos por enviar.`, icon: <Package size={16} className="text-blue-400"/>, time: 'Ahora' });
+      if (lowStock > 0) notifs.push({ title: 'Stock Bajo', msg: `${lowStock} productos se están agotando rápido.`, icon: <TrendingUp size={16} className="text-red-400"/>, time: 'Hace 2h' });
+      notifs.push({ title: 'Sistema', msg: 'Backup de base de datos completado.', icon: <Database size={16} className="text-green-400"/>, time: 'Hace 5h' });
+      
+      return notifs;
+  }
+  const notifications = getNotifications();
+
+  // Sub-components for rendering different views
+  const RenderDashboard = () => (
+    <div className="p-8 space-y-8 overflow-y-auto h-full custom-scrollbar">
+        <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-bold text-white">Resumen Comercial</h2>
+            <div className="flex gap-2 bg-zinc-900 p-1 rounded-lg border border-zinc-800">
+                {(['weekly', 'monthly', 'annual'] as const).map(range => (
+                    <button 
+                        key={range}
+                        onClick={() => setSalesTimeRange(range)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                            salesTimeRange === range ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                    >
+                        {range === 'weekly' ? 'Semanal' : range === 'monthly' ? 'Mensual' : 'Anual'}
+                    </button>
+                ))}
+            </div>
+        </div>
+        
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <StatsCard 
+                title="Ingresos Totales" 
+                value={`S/ ${analytics.totalRevenue.toFixed(2)}`} 
+                trend="+12.5%" 
+                icon={<DollarSign className="text-zinc-950" size={24} />} 
+                color="bg-lime-400"
+            />
+            <StatsCard 
+                title="Pedidos Totales" 
+                value={analytics.totalOrders.toString()} 
+                trend="+8.2%" 
+                icon={<ShoppingBag className="text-white" size={24} />} 
+                color="bg-zinc-800"
+                textColor="text-white"
+            />
+            <StatsCard 
+                title="Ticket Promedio" 
+                value={`S/ ${analytics.averageOrderValue.toFixed(2)}`} 
+                trend="-2.1%" 
+                icon={<TrendingUp className="text-white" size={24} />} 
+                color="bg-zinc-800"
+                textColor="text-white"
+            />
+            <StatsCard 
+                title="Producto Top" 
+                value={analytics.topSellingProduct?.sales.toString() || '0'} 
+                subtext={analytics.topSellingProduct?.name || 'N/A'}
+                icon={<CheckCircle className="text-white" size={24} />} 
+                color="bg-zinc-800"
+                textColor="text-white"
+            />
+        </div>
+
+        {/* Chart Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-96">
+            <div className="lg:col-span-2 bg-zinc-900 rounded-3xl p-6 border border-zinc-800 flex flex-col">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-bold text-white flex items-center gap-2">
+                        <TrendingUp size={16} className="text-lime-400"/> 
+                        Análisis de Ventas
+                    </h3>
+                    <div className="text-xs text-zinc-500 font-medium px-3 py-1 bg-zinc-950 rounded border border-zinc-800">
+                        {salesTimeRange === 'weekly' ? 'Últimos 7 días' : salesTimeRange === 'monthly' ? 'Este Mes' : 'Este Año'}
+                    </div>
+                </div>
+                {analytics.totalOrders === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 gap-4">
+                        <PieChart size={40} />
+                        <p>No hay datos suficientes para mostrar.</p>
+                        <button 
+                            onClick={handleGenerateData} 
+                            disabled={isGenerating}
+                            className="text-lime-400 hover:text-lime-300 underline text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isGenerating && <Loader2 size={14} className="animate-spin" />}
+                            {isGenerating ? 'Generando...' : 'Generar Datos Demo'}
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex-1 flex items-end justify-between gap-2 px-2">
+                        {chartData.values.map((val, i) => {
+                            const heightPercent = Math.max((val / chartData.max) * 100, 2); // Min 2% height for visibility
+                            return (
+                                <div key={i} className="w-full flex flex-col items-center gap-2 group cursor-pointer">
+                                    <div className="w-full bg-zinc-800 rounded-t-lg hover:bg-lime-400 transition-all relative" style={{ height: `${heightPercent}%` }}>
+                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-zinc-800 text-white text-xs font-bold px-2 py-1.5 rounded border border-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                                            S/ {val.toFixed(2)}
+                                        </div>
+                                    </div>
+                                    <span className="text-xs text-zinc-500 group-hover:text-white transition-colors">{chartData.labels[i]}</span>
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+
+            <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800">
+                <h3 className="font-bold text-white mb-6">Categorías Populares</h3>
+                <div className="space-y-6">
+                    <CategoryBar label="Verduras" percent={65} color="bg-lime-400" />
+                    <CategoryBar label="Frutas" percent={25} color="bg-yellow-400" />
+                    <CategoryBar label="Hierbas" percent={10} color="bg-green-600" />
+                </div>
+                <div className="mt-8 p-4 bg-zinc-950 rounded-xl border border-zinc-800">
+                    <div className="flex items-center gap-2 mb-2 text-lime-400">
+                        <Clock size={14} /> <span className="text-xs font-bold uppercase">Insight</span>
+                    </div>
+                    <p className="text-xs text-zinc-400">
+                        Las ventas de verduras aumentaron un <strong>15%</strong> esta semana. Considera aumentar el stock de espinaca y brócoli.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+  );
+
+  const RenderCustomers = () => {
+    // Derive unique customers from orders
+    const customers = Array.from(new Set(orders.map(o => o.email))).map(email => {
+        const customerOrders = orders.filter(o => o.email === email);
+        const lastOrder = customerOrders.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+        const totalSpent = customerOrders.reduce((sum, o) => sum + o.total, 0);
+        return {
+            name: lastOrder.customerName,
+            email: email,
+            totalOrders: customerOrders.length,
+            totalSpent: totalSpent,
+            lastActive: lastOrder.date
+        };
+    });
+
+    return (
+        <div className="p-8 h-full flex flex-col">
+            <h2 className="text-2xl font-bold text-white mb-8">Clientes ({customers.length})</h2>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col">
+                <div className="grid grid-cols-[2fr_2fr_1fr_1fr_1fr] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50">
+                    <div>Cliente</div>
+                    <div>Email</div>
+                    <div>Pedidos</div>
+                    <div>Total Gastado</div>
+                    <div>Última Actividad</div>
+                </div>
+                <div className="overflow-y-auto flex-1">
+                    {customers.map((customer, idx) => (
+                        <div key={idx} className="grid grid-cols-[2fr_2fr_1fr_1fr_1fr] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-lime-400/20 flex items-center justify-center text-xs font-bold text-lime-400">
+                                    {customer.name.charAt(0)}
+                                </div>
+                                <span className="font-medium text-white">{customer.name}</span>
+                            </div>
+                            <div className="text-zinc-400 text-sm">{customer.email}</div>
+                            <div className="text-white font-medium">{customer.totalOrders}</div>
+                            <div className="text-lime-400 font-medium">S/ {customer.totalSpent.toFixed(2)}</div>
+                            <div className="text-zinc-500 text-xs">{new Date(customer.lastActive).toLocaleDateString()}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+  };
+
+  const RenderPayments = () => (
+    <div className="p-8 h-full flex flex-col">
+        <h2 className="text-2xl font-bold text-white mb-8">Pagos & Transacciones</h2>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col">
+            <div className="grid grid-cols-[1fr_2fr_1fr_1fr_1fr] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50">
+                <div>ID Pedido</div>
+                <div>Cliente</div>
+                <div>Fecha</div>
+                <div>Monto</div>
+                <div>Estado</div>
+            </div>
+            <div className="overflow-y-auto flex-1">
+                {orders.map((order) => (
+                    <div key={order.id} className="grid grid-cols-[1fr_2fr_1fr_1fr_1fr] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
+                         <div className="font-mono text-zinc-400 text-sm">{order.id}</div>
+                         <div className="text-white font-medium">{order.customerName}</div>
+                         <div className="text-zinc-500 text-xs">{new Date(order.date).toLocaleDateString()} {new Date(order.date).toLocaleTimeString()}</div>
+                         <div className="text-white font-medium">S/ {order.total.toFixed(2)}</div>
+                         <div>
+                            <span className={`text-xs px-2.5 py-1 rounded-md font-medium border ${
+                                order.paymentStatus === 'Pagado' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 
+                                order.paymentStatus === 'Reembolsado' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                                'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+                            }`}>
+                                {order.paymentStatus}
+                            </span>
+                         </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    </div>
+  );
+
+  const RenderProductsCMS = () => (
+    <div className="p-8 h-full flex flex-col">
+        <div className="flex justify-between items-center mb-8">
+            <h2 className="text-2xl font-bold text-white">Gestión de Productos</h2>
+            <button 
+                onClick={() => setShowAddProduct(true)}
+                className="bg-lime-400 hover:bg-lime-300 text-zinc-950 px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
+            >
+                <Plus size={18} /> Nuevo Producto
+            </button>
+        </div>
+
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col">
+            <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr_auto] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50">
+                <div className="w-12">Imagen</div>
+                <div>Nombre</div>
+                <div>Categoría</div>
+                <div>Precio</div>
+                <div>Ventas</div>
+                <div className="text-right">Acciones</div>
+            </div>
+            
+            <div className="overflow-y-auto flex-1">
+                {products.map(product => (
+                    <div key={product.id} className="grid grid-cols-[auto_1fr_1fr_1fr_1fr_auto] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
+                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-800">
+                            <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="font-medium text-white">{product.name}</div>
+                        <div className="text-zinc-400 text-sm">
+                            <span className="px-2 py-1 rounded bg-zinc-800 border border-zinc-700">{product.category}</span>
+                        </div>
+                        <div className="text-lime-400 font-medium">S/ {product.price.toFixed(2)}</div>
+                        <div className="text-zinc-300">{product.sales} un.</div>
+                        <div className="text-right">
+                            <button 
+                                onClick={() => deleteProduct(product.id)}
+                                className="p-2 hover:bg-red-500/10 text-zinc-500 hover:text-red-500 rounded-lg transition-colors"
+                            >
+                                <Trash2 size={18} />
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    </div>
+  );
+
+  const RenderOrders = () => (
+    <div className="flex-1 flex overflow-hidden">
+        {/* Order List */}
+        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+           {/* Filters */}
+           <div className="flex items-center gap-4 mb-6 text-sm">
+              <FilterDropdown label="Status: All" />
+              <FilterDropdown label="Payment: All" />
+              <button className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-300 hover:text-white">
+                <Filter size={14} /> Filtros
+              </button>
+           </div>
+
+           {/* Table Header */}
+           <div className="grid grid-cols-[auto_1fr_2fr_1fr_1fr_1fr_auto] gap-4 px-4 py-3 text-xs font-medium text-zinc-500 uppercase border-b border-zinc-800/50 bg-zinc-900/30">
+             <input type="checkbox" className="rounded bg-zinc-900 border-zinc-800" />
+             <div>Nº Orden</div>
+             <div>Cliente</div>
+             <div>Pago</div>
+             <div className="text-right">Total</div>
+             <div>Estado</div>
+             <div></div>
+           </div>
+
+           {/* Table Body */}
+           <div className="space-y-1 mt-2">
+             {orders.map((order) => (
+               <div 
+                 key={order.id} 
+                 onClick={() => setSelectedOrder(order)}
+                 className={`grid grid-cols-[auto_1fr_2fr_1fr_1fr_1fr_auto] gap-4 items-center px-4 py-4 rounded-xl cursor-pointer transition-colors border border-transparent ${
+                   selectedOrder?.id === order.id ? 'bg-zinc-900 border-zinc-800' : 'hover:bg-zinc-900/50 hover:border-zinc-800/50'
+                 }`}
+               >
+                  <input type="checkbox" className="rounded bg-zinc-900 border-zinc-800 accent-lime-400" />
+                  <div className="font-medium text-white">{order.id.slice(0, 8)}...</div>
+                  <div className="flex items-center gap-3">
+                     <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
+                        {order.customerName.charAt(0)}
+                     </div>
+                     <span className="text-zinc-300 truncate">{order.customerName}</span>
+                  </div>
+                  <div className={`text-sm ${order.paymentStatus === 'Pagado' ? 'text-green-400' : 'text-zinc-400'}`}>
+                     ● {order.paymentStatus}
+                  </div>
+                  <div className="text-right font-medium text-white">
+                    S/ {order.total.toFixed(2)}
+                  </div>
+                  <div>
+                    <span className={`text-xs px-2.5 py-1 rounded-md font-medium border ${
+                         order.status === 'Entregado' ? 'bg-lime-400/10 text-lime-400 border-lime-400/20' : 
+                         order.status === 'Cancelado' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                         'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                    }`}>
+                      {order.status}
+                    </span>
+                  </div>
+                  <button className="text-zinc-500 hover:text-white p-1">
+                    <MoreHorizontal size={16} />
+                  </button>
+               </div>
+             ))}
+           </div>
+        </div>
+
+        {/* Details Panel */}
+        {selectedOrder && (
+          <div className="w-96 border-l border-zinc-900 bg-zinc-950 flex flex-col overflow-y-auto custom-scrollbar shadow-2xl z-10">
+            <div className="p-6 border-b border-zinc-900 flex justify-between items-start">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                  Orden #{selectedOrder.id.slice(0, 6)}
+                </h2>
+                <p className="text-xs text-zinc-500 mt-1">Realizado el {new Date(selectedOrder.date).toLocaleString()}</p>
+              </div>
+              <button onClick={() => setSelectedOrder(null)} className="text-zinc-500 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-8">
+              <div className="flex items-center justify-between">
+                <span className="text-xs px-2.5 py-1 rounded-md font-medium border bg-zinc-800 text-white">
+                  {selectedOrder.status}
+                </span>
+                <div className="flex gap-2">
+                   <ActionIcon icon={<Truck size={16}/>} onClick={() => updateOrderStatus(selectedOrder.id, 'Enviado')} title="Marcar Enviado" />
+                   <ActionIcon icon={<CheckCircle size={16}/>} onClick={() => updateOrderStatus(selectedOrder.id, 'Entregado')} title="Marcar Entregado" />
+                   <ActionIcon icon={<Ban size={16}/>} onClick={() => updateOrderStatus(selectedOrder.id, 'Cancelado')} title="Cancelar Pedido" />
+                </div>
+              </div>
+
+              {/* Customer */}
+              <div>
+                <h3 className="text-sm font-medium text-zinc-400 mb-4">Cliente</h3>
+                <div className="flex items-center gap-4">
+                   <img src={`https://ui-avatars.com/api/?name=${selectedOrder.customerName}&background=a3e635&color=18181b`} className="w-12 h-12 rounded-full" />
+                   <div>
+                     <p className="font-bold text-white">{selectedOrder.customerName}</p>
+                     <p className="text-sm text-zinc-500">{selectedOrder.email}</p>
+                   </div>
+                </div>
+              </div>
+
+              {/* Order Items */}
+              <div>
+                <h3 className="text-sm font-medium text-zinc-400 mb-4">Items del Pedido</h3>
+                <div className="space-y-4">
+                  {selectedOrder.items?.map((item, idx) => (
+                    <div key={idx} className="flex gap-3">
+                      <img src={item.image} className="w-12 h-12 rounded-lg object-cover bg-zinc-900" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-white leading-tight">{item.name}</p>
+                        <p className="text-xs text-zinc-500 mt-0.5">S/ {item.price} x {item.quantity}</p>
+                      </div>
+                      <p className="text-sm font-medium text-white">S/ {(item.price * item.quantity).toFixed(2)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="pt-6 border-t border-zinc-900">
+                  <div className="flex justify-between text-white font-bold text-lg">
+                      <span>Total</span>
+                      <span>S/ {selectedOrder.total.toFixed(2)}</span>
+                  </div>
+              </div>
+            </div>
+          </div>
+        )}
+    </div>
+  );
+
+  return (
+    <div className="flex h-screen bg-zinc-950 text-zinc-300 font-sans overflow-hidden">
+      
+      {/* Sidebar */}
+      <aside className="w-64 border-r border-zinc-900 flex flex-col flex-shrink-0 bg-zinc-950">
+        <div className="p-6 flex items-center justify-start">
+           <Logo className="h-10 w-auto" variant="light" />
+        </div>
+
+        <nav className="flex-1 px-4 space-y-1 mt-4">
+          <p className="px-3 text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-2 mt-2">General</p>
+          <SidebarItem icon={<LayoutDashboard size={18}/>} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+          <SidebarItem icon={<ListOrdered size={18}/>} label="Pedidos" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
+          <SidebarItem icon={<Users size={18}/>} label="Clientes" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
+          
+          <p className="px-3 text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-2 mt-6">Inventario</p>
+          <SidebarItem icon={<ShoppingBag size={18}/>} label="Productos" active={activeTab === 'products'} onClick={() => setActiveTab('products')} />
+          
+          <p className="px-3 text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-2 mt-6">Finanzas</p>
+          <SidebarItem icon={<CreditCard size={18}/>} label="Pagos" active={activeTab === 'payments'} onClick={() => setActiveTab('payments')} />
+        </nav>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col min-w-0 relative">
+        <header className="h-20 border-b border-zinc-900 flex items-center justify-between px-8 flex-shrink-0 bg-zinc-950">
+           <h1 className="text-2xl font-bold text-white capitalize">
+             {activeTab === 'dashboard' ? 'Resumen Comercial' : 
+              activeTab === 'orders' ? 'Pedidos' : 
+              activeTab === 'customers' ? 'Clientes' : 
+              activeTab === 'payments' ? 'Pagos' :
+              'Productos'}
+           </h1>
+           <div className="flex items-center gap-4">
+              
+              {/* Notifications */}
+              <div className="relative" ref={notifRef}>
+                <button 
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  className="relative p-2 rounded-full hover:bg-zinc-800 transition-colors"
+                >
+                    <Bell size={20} className="text-zinc-400 hover:text-white" />
+                    {notifications.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-lime-400 rounded-full"></span>}
+                </button>
+                {showNotifications && (
+                    <div className="absolute right-0 top-full mt-2 w-80 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95">
+                        <div className="p-4 border-b border-zinc-800 font-semibold text-white">Notificaciones</div>
+                        <div className="max-h-64 overflow-y-auto">
+                            {notifications.length === 0 ? (
+                                <div className="p-4 text-center text-zinc-500 text-sm">No hay notificaciones nuevas.</div>
+                            ) : (
+                                notifications.map((notif, i) => (
+                                    <div key={i} className="p-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 flex gap-3">
+                                        <div className="mt-1">{notif.icon}</div>
+                                        <div>
+                                            <p className="text-sm font-medium text-white">{notif.title}</p>
+                                            <p className="text-xs text-zinc-400">{notif.msg}</p>
+                                            <p className="text-[10px] text-zinc-600 mt-1">{notif.time}</p>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                )}
+              </div>
+              
+              <div className="h-8 w-[1px] bg-zinc-800 mx-2"></div>
+              
+              {/* Profile Menu */}
+              <div className="relative" ref={profileRef}>
+                  <div 
+                     className="flex items-center gap-3 cursor-pointer p-1 rounded-lg hover:bg-zinc-900 transition-colors"
+                     onClick={() => setShowProfileMenu(!showProfileMenu)}
+                  >
+                     <div className="text-right hidden md:block leading-tight">
+                        <p className="text-sm font-bold text-white">{user?.name || 'Admin'}</p>
+                        <p className="text-xs text-zinc-500">Super Usuario</p>
+                     </div>
+                     <div className="w-10 h-10 rounded-full bg-lime-400 flex items-center justify-center text-zinc-900 font-bold shadow-lg shadow-lime-400/20">
+                         {user?.name?.charAt(0).toUpperCase() || 'A'}
+                     </div>
+                     <ChevronDown size={14} className="text-zinc-500"/>
+                  </div>
+                  
+                  {showProfileMenu && (
+                      <div className="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95">
+                          <button onClick={() => { setShowSettingsModal(true); setShowProfileMenu(false); }} className="w-full text-left px-4 py-3 text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 flex items-center gap-2">
+                              <Settings size={16}/> Configuración de Perfil
+                          </button>
+                          <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-sm text-red-400 hover:text-red-300 hover:bg-zinc-800 flex items-center gap-2 border-t border-zinc-800">
+                              <LogOut size={16}/> Cerrar Sesión
+                          </button>
+                      </div>
+                  )}
+              </div>
+           </div>
+        </header>
+
+        <div className="flex-1 overflow-hidden bg-zinc-950">
+            {activeTab === 'dashboard' && <RenderDashboard />}
+            {activeTab === 'products' && <RenderProductsCMS />}
+            {activeTab === 'orders' && <RenderOrders />}
+            {activeTab === 'customers' && <RenderCustomers />}
+            {activeTab === 'payments' && <RenderPayments />}
+        </div>
+        
+        {/* Settings Modal */}
+        {showSettingsModal && (
+            <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-2xl p-8 shadow-2xl animate-in fade-in zoom-in-95">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold text-white flex items-center gap-2"><Settings size={20} className="text-lime-400"/> Perfil Admin</h2>
+                        <button onClick={() => setShowSettingsModal(false)}><X className="text-zinc-500 hover:text-white" /></button>
+                    </div>
+                    
+                    <form onSubmit={handleSaveSettings} className="space-y-4">
+                        <div className="flex justify-center mb-6">
+                            <div className="w-20 h-20 rounded-full bg-lime-400 flex items-center justify-center text-3xl font-bold text-zinc-900">
+                                {settingsForm.name.charAt(0).toUpperCase()}
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-zinc-500 mb-1">Nombre Completo</label>
+                            <div className="relative">
+                                <User className="absolute left-3 top-2.5 text-zinc-500 w-4 h-4" />
+                                <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-white focus:border-lime-400 outline-none" value={settingsForm.name} onChange={e => setSettingsForm({...settingsForm, name: e.target.value})} />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-zinc-500 mb-1">Teléfono</label>
+                            <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={settingsForm.phone} onChange={e => setSettingsForm({...settingsForm, phone: e.target.value})} />
+                        </div>
+                        
+                        <div className="pt-4 flex justify-between gap-3 items-center">
+                             <button 
+                                type="button" 
+                                onClick={handleGenerateData} 
+                                disabled={isGenerating}
+                                className="text-xs text-lime-400 underline hover:text-lime-300 disabled:opacity-50 flex items-center gap-1"
+                             >
+                                 {isGenerating && <Loader2 size={10} className="animate-spin" />}
+                                 Generar Datos Históricos
+                             </button>
+                             <div className="flex gap-2">
+                                <button type="button" onClick={() => setShowSettingsModal(false)} className="px-4 py-2 text-zinc-400 hover:text-white font-medium text-sm">Cancelar</button>
+                                <button type="submit" className="bg-lime-400 text-zinc-900 px-6 py-2 rounded-lg font-bold hover:bg-lime-300 text-sm flex items-center gap-2">
+                                    <Save size={16}/> Guardar
+                                </button>
+                             </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        )}
+
+        {/* Add Product Modal */}
+        {showAddProduct && (
+            <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-2xl p-8 shadow-2xl animate-in fade-in zoom-in-95">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold text-white">Agregar Producto</h2>
+                        <button onClick={() => setShowAddProduct(false)}><X className="text-zinc-500 hover:text-white" /></button>
+                    </div>
+                    <form onSubmit={handleAddProduct} className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-medium text-zinc-500 mb-1">Nombre del Producto</label>
+                            <input autoFocus required type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-medium text-zinc-500 mb-1">Precio (S/)</label>
+                                <input required type="number" step="0.01" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-zinc-500 mb-1">Categoría</label>
+                                <select className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})}>
+                                    <option>Verduras</option>
+                                    <option>Frutas</option>
+                                    <option>Hierbas</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                             <label className="block text-xs font-medium text-zinc-500 mb-1">URL de Imagen</label>
+                             <div className="flex gap-2">
+                                <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none text-xs" value={newProduct.image} onChange={e => setNewProduct({...newProduct, image: e.target.value})} />
+                             </div>
+                        </div>
+                        
+                        <div className="pt-4 flex justify-end gap-3">
+                            <button type="button" onClick={() => setShowAddProduct(false)} className="px-4 py-2 text-zinc-400 hover:text-white font-medium">Cancelar</button>
+                            <button type="submit" className="bg-lime-400 text-zinc-900 px-6 py-2 rounded-lg font-bold hover:bg-lime-300">Guardar Producto</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        )}
+
+      </main>
+    </div>
+  );
+};
+
+// UI Components for Dashboard
+const StatsCard = ({ title, value, trend, icon, color, subtext, textColor = 'text-zinc-900' }: any) => (
+    <div className={`${color} p-6 rounded-3xl flex flex-col justify-between h-40 border border-white/5`}>
+        <div className="flex justify-between items-start">
+            <div className={`p-2 rounded-xl bg-white/20 backdrop-blur-md`}>
+                {icon}
+            </div>
+            {trend && <span className={`text-xs font-bold px-2 py-1 rounded-full bg-white/20 ${textColor}`}>{trend}</span>}
+        </div>
+        <div>
+            <p className={`text-sm font-medium opacity-80 ${textColor}`}>{title}</p>
+            <h3 className={`text-3xl font-bold ${textColor}`}>{value}</h3>
+            {subtext && <p className={`text-xs mt-1 ${textColor} opacity-70 truncate`}>{subtext}</p>}
+        </div>
+    </div>
+);
+
+const CategoryBar = ({ label, percent, color }: any) => (
+    <div>
+        <div className="flex justify-between text-sm font-medium mb-2">
+            <span className="text-zinc-300">{label}</span>
+            <span className="text-zinc-500">{percent}%</span>
+        </div>
+        <div className="w-full bg-zinc-800 rounded-full h-2">
+            <div className={`${color} h-2 rounded-full`} style={{ width: `${percent}%` }}></div>
+        </div>
+    </div>
+);
+
+const SidebarItem = ({ icon, label, active, onClick }: any) => (
+  <button 
+    onClick={onClick}
+    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+      active 
+        ? 'text-white bg-zinc-900 border-l-2 border-lime-400 shadow-lg shadow-black/20' 
+        : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50'
+    }`}
+  >
+    <span className={active ? 'text-lime-400' : ''}>{icon}</span>
+    {label}
+  </button>
+);
+
+const FilterDropdown = ({ label }: { label: string }) => (
+  <button className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-300 hover:text-white text-xs font-medium">
+    {label} <ChevronDown size={12} />
+  </button>
+);
+
+const ActionIcon = ({ icon, onClick, title }: any) => (
+  <button onClick={onClick} title={title} className="p-1.5 rounded-md hover:bg-zinc-800 text-zinc-500 hover:text-white transition-colors">
+    {icon}
+  </button>
+);
+
+export default AdminDashboard;
