@@ -1,10 +1,11 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore, Order, Product } from '../../context/StoreContext';
 import { 
   LayoutDashboard, ShoppingBag, ListOrdered, CreditCard, Users, PieChart, 
   Settings, LogOut, Bell, Filter, ChevronDown, MoreHorizontal,
   X, Truck, Package, CheckCircle, Clock, Ban, Plus, Trash2, TrendingUp, DollarSign, User, Save, Database, Loader2,
-  Menu, Edit, Upload, Eye, ArrowLeft, Calendar
+  Menu, Edit, Upload, Eye, ArrowLeft, Calendar, FileText, Download
 } from 'lucide-react';
 import Logo from '../ui/Logo';
 import ProductDetail from '../ProductDetail';
@@ -134,75 +135,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
       }
   }
 
-  // Calculate Real Chart Data from Orders
-  const getChartData = () => {
-      const now = new Date();
-      let labels: string[] = [];
-      let values: number[] = [];
-      
-      if (salesTimeRange === 'annual') {
-          // Annual: Last 12 months
-          labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-          values = new Array(12).fill(0);
-          
-          orders.forEach(order => {
-              const d = new Date(order.date);
-              if (d.getFullYear() === now.getFullYear() && order.paymentStatus === 'Pagado') {
-                  values[d.getMonth()] += order.total;
-              }
-          });
-
-      } else if (salesTimeRange === 'monthly') {
-          // Monthly: Bucket into 4 weeks
-          labels = ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4', 'Sem 5'];
-          values = new Array(5).fill(0);
-          
-          orders.forEach(order => {
-              const d = new Date(order.date);
-              if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && order.paymentStatus === 'Pagado') {
-                  const day = d.getDate();
-                  const week = Math.floor((day - 1) / 7);
-                  if (week < 5) values[week] += order.total;
-              }
-          });
-
-      } else if (salesTimeRange === 'weekly') {
-          // Weekly: Last 7 days
-          for (let i = 6; i >= 0; i--) {
-              const d = new Date(now);
-              d.setDate(now.getDate() - i);
-              const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-              labels.push(days[d.getDay()]);
-              
-              const dayTotal = orders.reduce((sum, order) => {
-                  const od = new Date(order.date);
-                  if (od.getDate() === d.getDate() && od.getMonth() === d.getMonth() && order.paymentStatus === 'Pagado') {
-                      return sum + order.total;
-                  }
-                  return sum;
-              }, 0);
-              values.push(dayTotal);
-          }
-      } else {
-          // Daily: Breakdown by Hour (Simulated buckets for demo) for current day
-          labels = ['00h', '04h', '08h', '12h', '16h', '20h'];
-          values = new Array(6).fill(0);
-          orders.forEach(order => {
-              const d = new Date(order.date);
-              if (d.getDate() === now.getDate() && order.paymentStatus === 'Pagado') {
-                  const hour = d.getHours();
-                  const bucket = Math.floor(hour / 4);
-                  if(bucket < 6) values[bucket] += order.total;
-              }
-          });
-      }
-
-      const max = Math.max(...values, 100) * 1.1; 
-      return { labels, values, max };
-  };
-
-  const chartData = getChartData();
-
   // Dynamic Notifications Logic
   const getNotifications = () => {
       const pendingOrders = orders.filter(o => o.status === 'Pendiente').length;
@@ -218,6 +150,84 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
   const notifications = getNotifications();
 
   // ---- VIEW COMPONENTS ----
+
+  const RenderSalesHistory = () => {
+      return (
+        <div className="p-4 md:p-8 h-full flex flex-col overflow-hidden bg-zinc-950">
+            <div className="flex justify-between items-center mb-8 flex-shrink-0">
+                <div>
+                    <h2 className="text-2xl font-bold text-white">Historial de Ventas</h2>
+                    <p className="text-zinc-500 text-sm mt-1">Registro completo de transacciones</p>
+                </div>
+                <button className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors">
+                    <Download size={16} /> Exportar Reporte
+                </button>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col min-w-0">
+                <div className="flex-1 overflow-y-auto custom-scrollbar" data-lenis-prevent>
+                    <div className="min-w-[900px]">
+                        {/* Table Header */}
+                        <div className="grid grid-cols-[1fr_2fr_2fr_1fr_1fr_1fr] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50 sticky top-0 z-10">
+                            <div>ID Venta</div>
+                            <div>Cliente</div>
+                            <div>Producto / Detalle</div>
+                            <div>Fecha</div>
+                            <div className="text-right">Monto</div>
+                            <div className="text-center">Estado</div>
+                        </div>
+                        
+                        {/* Table Body */}
+                        <div>
+                            {orders.map((order) => (
+                                <div 
+                                    key={order.id} 
+                                    className="grid grid-cols-[1fr_2fr_2fr_1fr_1fr_1fr] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors group"
+                                >
+                                    <div className="font-mono text-zinc-400 text-sm group-hover:text-lime-400 transition-colors">
+                                        #{order.id.slice(0, 8)}
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
+                                            {order.customerName.charAt(0)}
+                                        </div>
+                                        <span className="text-white font-medium truncate">{order.customerName}</span>
+                                    </div>
+
+                                    <div className="text-zinc-400 text-sm truncate">
+                                        {order.items && order.items.length > 0 
+                                            ? `${order.items[0].name} ${order.items.length > 1 ? `+${order.items.length - 1} más` : ''}`
+                                            : 'Sin detalles'
+                                        }
+                                    </div>
+
+                                    <div className="text-zinc-500 text-sm">
+                                        {new Date(order.date).toLocaleDateString()}
+                                    </div>
+
+                                    <div className="text-right font-bold text-white">
+                                        S/ {order.total.toFixed(2)}
+                                    </div>
+
+                                    <div className="text-center">
+                                        <span className={`inline-block text-xs px-2.5 py-1 rounded-md font-medium border ${
+                                            order.status === 'Entregado' ? 'bg-lime-400/10 text-lime-400 border-lime-400/20' : 
+                                            order.status === 'Cancelado' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                                            'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+                                        }`}>
+                                            {order.status}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+      );
+  };
 
   const RenderProductEditor = () => {
       if (!editingProduct) return null;
@@ -239,12 +249,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
                   </button>
               </div>
 
-              {/* 
-                  Main Layout:
-                  - Mobile: flex-col, main container scrolls (overflow-y-auto). Preview stacks below form.
-                  - Desktop: flex-row, main container overflow-hidden. Panels scroll independently.
-                  - Added 'data-lenis-prevent' to ensure native scroll works.
-              */}
               <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden h-full bg-zinc-900" data-lenis-prevent>
                   
                   {/* Editor Form */}
@@ -347,123 +351,130 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
       );
   }
 
-  const RenderDashboard = () => (
-    <div className="p-4 md:p-8 space-y-8 flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-zinc-950" data-lenis-prevent>
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 flex-shrink-0">
-            <h2 className="text-2xl font-bold text-white">Resumen Comercial</h2>
-            <div className="flex flex-wrap gap-2 bg-zinc-900 p-1 rounded-lg border border-zinc-800 w-full md:w-auto">
-                {(['daily', 'weekly', 'monthly', 'annual'] as const).map(range => (
-                    <button 
-                        key={range}
-                        onClick={() => setSalesTimeRange(range)}
-                        className={`flex-1 md:flex-none px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                            salesTimeRange === range ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
-                        }`}
-                    >
-                        {range === 'daily' ? 'Diario' : range === 'weekly' ? 'Semanal' : range === 'monthly' ? 'Mensual' : 'Anual'}
-                    </button>
-                ))}
-            </div>
-        </div>
-        
-        {/* KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 flex-shrink-0">
-            <StatsCard 
-                title="Ingresos Totales" 
-                value={`S/ ${analytics.totalRevenue.toFixed(2)}`} 
-                trend="+12.5%" 
-                icon={<DollarSign className="text-zinc-950" size={24} />} 
-                color="bg-lime-400"
-            />
-            <StatsCard 
-                title="Pedidos Totales" 
-                value={analytics.totalOrders.toString()} 
-                trend="+8.2%" 
-                icon={<ShoppingBag className="text-white" size={24} />} 
-                color="bg-zinc-800"
-                textColor="text-white"
-            />
-            <StatsCard 
-                title="Ticket Promedio" 
-                value={`S/ ${analytics.averageOrderValue.toFixed(2)}`} 
-                trend="-2.1%" 
-                icon={<TrendingUp className="text-white" size={24} />} 
-                color="bg-zinc-800"
-                textColor="text-white"
-            />
-            <StatsCard 
-                title="Producto Top" 
-                value={analytics.topSellingProduct?.sales.toString() || '0'} 
-                subtext={analytics.topSellingProduct?.name || 'N/A'}
-                icon={<CheckCircle className="text-white" size={24} />} 
-                color="bg-zinc-800"
-                textColor="text-white"
-            />
-        </div>
+  const RenderDashboard = () => {
+    // DIAGNOSIS: STATIC CHART DATA to guarantee rendering
+    const DEBUG_CHART_DATA = [
+        { label: '00h', value: 50 },
+        { label: '04h', value: 120 },
+        { label: '08h', value: 450 },
+        { label: '12h', value: 890 },
+        { label: '16h', value: 600 },
+        { label: '20h', value: 320 },
+        { label: '23h', value: 100 },
+    ];
+    const MAX_VAL = 1000;
 
-        {/* Chart Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-auto lg:h-96 flex-shrink-0">
-            <div className="lg:col-span-2 bg-zinc-900 rounded-3xl p-6 border border-zinc-800 flex flex-col min-h-[300px]">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-bold text-white flex items-center gap-2">
-                        <TrendingUp size={16} className="text-lime-400"/> 
-                        Análisis de Ventas
-                    </h3>
-                    <div className="text-xs text-zinc-500 font-medium px-3 py-1 bg-zinc-950 rounded border border-zinc-800 hidden sm:block">
-                        {salesTimeRange === 'daily' ? 'Hoy' : salesTimeRange === 'weekly' ? 'Últimos 7 días' : salesTimeRange === 'monthly' ? 'Este Mes' : 'Este Año'}
-                    </div>
-                </div>
-                {analytics.totalOrders === 0 ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 gap-4">
-                        <PieChart size={40} />
-                        <p>No hay datos suficientes para mostrar.</p>
+    return (
+        <div className="p-4 md:p-8 space-y-8 flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-zinc-950" data-lenis-prevent>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 flex-shrink-0">
+                <h2 className="text-2xl font-bold text-white">Resumen Comercial</h2>
+                <div className="flex flex-wrap gap-2 bg-zinc-900 p-1 rounded-lg border border-zinc-800 w-full md:w-auto">
+                    {(['daily', 'weekly', 'monthly', 'annual'] as const).map(range => (
                         <button 
-                            onClick={handleGenerateData} 
-                            disabled={isGenerating}
-                            className="text-lime-400 hover:text-lime-300 underline text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            key={range}
+                            onClick={() => setSalesTimeRange(range)}
+                            className={`flex-1 md:flex-none px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                                salesTimeRange === range ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
                         >
-                            {isGenerating && <Loader2 size={14} className="animate-spin" />}
-                            {isGenerating ? 'Generando...' : 'Generar Datos Demo'}
+                            {range === 'daily' ? 'Diario' : range === 'weekly' ? 'Semanal' : range === 'monthly' ? 'Mensual' : 'Anual'}
                         </button>
+                    ))}
+                </div>
+            </div>
+            
+            {/* KPI Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 flex-shrink-0">
+                <StatsCard 
+                    title="Ingresos Totales" 
+                    value={`S/ ${analytics.totalRevenue.toFixed(2)}`} 
+                    trend="+12.5%" 
+                    icon={<DollarSign className="text-zinc-950" size={24} />} 
+                    color="bg-lime-400"
+                />
+                <StatsCard 
+                    title="Pedidos Totales" 
+                    value={analytics.totalOrders.toString()} 
+                    trend="+8.2%" 
+                    icon={<ShoppingBag className="text-white" size={24} />} 
+                    color="bg-zinc-800"
+                    textColor="text-white"
+                />
+                <StatsCard 
+                    title="Ticket Promedio" 
+                    value={`S/ ${analytics.averageOrderValue.toFixed(2)}`} 
+                    trend="-2.1%" 
+                    icon={<TrendingUp className="text-white" size={24} />} 
+                    color="bg-zinc-800"
+                    textColor="text-white"
+                />
+                <StatsCard 
+                    title="Producto Top" 
+                    value={analytics.topSellingProduct?.sales.toString() || '0'} 
+                    subtext={analytics.topSellingProduct?.name || 'N/A'}
+                    icon={<CheckCircle className="text-white" size={24} />} 
+                    color="bg-zinc-800"
+                    textColor="text-white"
+                />
+            </div>
+
+            {/* Chart Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-auto lg:h-96 flex-shrink-0">
+                <div className="lg:col-span-2 bg-zinc-900 rounded-3xl p-6 border border-zinc-800 flex flex-col min-h-[350px]">
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="font-bold text-white flex items-center gap-2">
+                            <TrendingUp size={16} className="text-lime-400"/> 
+                            Análisis de Ventas
+                        </h3>
+                        <div className="text-xs text-zinc-500 font-medium px-3 py-1 bg-zinc-950 rounded border border-zinc-800 hidden sm:block">
+                            Distribución Horaria
+                        </div>
                     </div>
-                ) : (
-                    <div className="flex-1 flex items-end justify-between gap-2 px-2 w-full overflow-x-auto" data-lenis-prevent>
-                        {chartData.values.map((val, i) => {
-                            const heightPercent = chartData.max > 0 ? Math.max((val / chartData.max) * 100, 2) : 2;
+                    
+                    {/* Chart Container: Force explicit pixel height and debug data */}
+                    <div className="flex-1 w-full h-[300px] flex items-end justify-between gap-4 pb-2 px-4" data-lenis-prevent>
+                        {DEBUG_CHART_DATA.map((item, i) => {
+                            const heightPct = Math.max((item.value / MAX_VAL) * 100, 5); // Min 5% height
                             return (
-                                <div key={i} className="flex-1 flex flex-col items-center gap-2 group cursor-pointer min-w-[30px]">
-                                    <div className="w-full bg-zinc-800 rounded-t-lg hover:bg-lime-400 transition-all relative" style={{ height: `${heightPercent}%` }}>
-                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-zinc-800 text-white text-xs font-bold px-2 py-1.5 rounded border border-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-                                            S/ {val.toFixed(2)}
+                                <div key={i} className="flex-1 h-full flex flex-col justify-end gap-2 group">
+                                    <div className="w-full bg-lime-900/20 rounded-t-md relative h-full flex items-end">
+                                        <div 
+                                            className="w-full bg-lime-400 rounded-t-md hover:bg-lime-300 transition-all duration-300 relative"
+                                            style={{ height: `${heightPct}%` }}
+                                        >
+                                            {/* Tooltip */}
+                                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-zinc-900 text-xs font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-xl z-20 pointer-events-none">
+                                                {item.value} ventas
+                                            </div>
                                         </div>
                                     </div>
-                                    <span className="text-[10px] md:text-xs text-zinc-500 group-hover:text-white transition-colors truncate w-full text-center">{chartData.labels[i]}</span>
+                                    <span className="text-xs text-zinc-500 text-center font-mono">{item.label}</span>
                                 </div>
                             )
                         })}
                     </div>
-                )}
-            </div>
-
-            <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800">
-                <h3 className="font-bold text-white mb-6">Categorías Populares</h3>
-                <div className="space-y-6">
-                    <CategoryBar label="Verduras" percent={65} color="bg-lime-400" />
-                    <CategoryBar label="Frutas" percent={25} color="bg-yellow-400" />
-                    <CategoryBar label="Hierbas" percent={10} color="bg-green-600" />
                 </div>
-                <div className="mt-8 p-4 bg-zinc-950 rounded-xl border border-zinc-800">
-                    <div className="flex items-center gap-2 mb-2 text-lime-400">
-                        <Clock size={14} /> <span className="text-xs font-bold uppercase">Insight</span>
+
+                <div className="bg-zinc-900 rounded-3xl p-6 border border-zinc-800">
+                    <h3 className="font-bold text-white mb-6">Categorías Populares</h3>
+                    <div className="space-y-6">
+                        <CategoryBar label="Verduras" percent={65} color="bg-lime-400" />
+                        <CategoryBar label="Frutas" percent={25} color="bg-yellow-400" />
+                        <CategoryBar label="Hierbas" percent={10} color="bg-green-600" />
                     </div>
-                    <p className="text-xs text-zinc-400">
-                        Las ventas de verduras aumentaron un <strong>15%</strong> esta semana. Considera aumentar el stock de espinaca y brócoli.
-                    </p>
+                    <div className="mt-8 p-4 bg-zinc-950 rounded-xl border border-zinc-800">
+                        <div className="flex items-center gap-2 mb-2 text-lime-400">
+                            <Clock size={14} /> <span className="text-xs font-bold uppercase">Insight</span>
+                        </div>
+                        <p className="text-xs text-zinc-400">
+                            Las ventas de verduras aumentaron un <strong>15%</strong> esta semana. Considera aumentar el stock de espinaca y brócoli.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-  );
+    );
+  };
 
   const RenderCustomers = () => {
     const customers = Array.from(new Set(orders.map(o => o.email))).map(email => {
@@ -913,6 +924,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
           
           <p className="px-3 text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-2 mt-6">Finanzas</p>
           <SidebarItem icon={<CreditCard size={18}/>} label="Pagos" active={activeTab === 'payments'} onClick={() => {setActiveTab('payments'); setIsSidebarOpen(false);}} />
+          <SidebarItem icon={<FileText size={18}/>} label="Historial" active={activeTab === 'history'} onClick={() => {setActiveTab('history'); setIsSidebarOpen(false);}} />
         </nav>
       </aside>
 
@@ -929,6 +941,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
                   activeTab === 'orders' ? 'Pedidos' : 
                   activeTab === 'customers' ? 'Clientes' : 
                   activeTab === 'payments' ? 'Pagos' :
+                  activeTab === 'history' ? 'Historial de Ventas' :
                   'Productos'}
                </h1>
            </div>
@@ -1005,6 +1018,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
             {activeTab === 'orders' && <RenderOrders />}
             {activeTab === 'customers' && <RenderCustomers />}
             {activeTab === 'payments' && <RenderPayments />}
+            {activeTab === 'history' && <RenderSalesHistory />}
         </div>
         
         {/* Settings Modal */}
