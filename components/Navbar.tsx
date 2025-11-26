@@ -26,6 +26,15 @@ const Navbar: React.FC<NavbarProps> = ({ onNavigate, onScrollToSection, currentP
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Lock body scroll when menu is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+  }, [mobileMenuOpen]);
+
   const handlePageClick = (page: Page) => {
     setMobileMenuOpen(false);
     onNavigate(page);
@@ -38,19 +47,18 @@ const Navbar: React.FC<NavbarProps> = ({ onNavigate, onScrollToSection, currentP
   };
 
   const isHome = currentPage === 'home';
-  const showBackground = isScrolled || !isHome;
+  const showBackground = isScrolled || !isHome || mobileMenuOpen; 
 
   const isActive = (page: Page) => currentPage === page ? "text-white" : "text-white/80 hover:text-white";
 
   return (
-    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b ${showBackground ? 'bg-zinc-900/95 backdrop-blur-md border-zinc-800 py-3' : 'bg-transparent border-white/10 py-5'}`}>
-      <div className="max-w-screen-2xl mx-auto px-6 lg:px-12 flex items-center justify-between">
+    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 border-b ${showBackground ? 'bg-zinc-900/95 backdrop-blur-md border-zinc-800 py-3' : 'bg-transparent border-white/10 py-4 md:py-6'}`}>
+      <div className="max-w-screen-2xl mx-auto px-4 lg:px-12 flex items-center justify-between">
         <div 
-          className="flex items-center cursor-pointer" 
+          className="flex items-center cursor-pointer z-[70] relative" 
           onClick={() => handlePageClick('home')}
         >
-          {/* Logo Component - Always light variant because navbar is dark/transparent */}
-          <Logo className="h-10 w-auto" variant="light" />
+          <Logo className="h-7 md:h-10 w-auto transition-all" variant="light" />
         </div>
 
         {/* Desktop Links */}
@@ -61,8 +69,8 @@ const Navbar: React.FC<NavbarProps> = ({ onNavigate, onScrollToSection, currentP
           <button onClick={() => handlePageClick('contact')} className={`transition-colors ${isActive('contact')}`}>Contacto</button>
         </div>
 
-        {/* Actions */}
-        <div className="hidden md:flex items-center gap-6">
+        {/* Desktop Actions */}
+        <div className="hidden lg:flex items-center gap-6">
           {user?.role === 'admin' && (
             <button 
                onClick={() => handlePageClick('admin')}
@@ -87,7 +95,7 @@ const Navbar: React.FC<NavbarProps> = ({ onNavigate, onScrollToSection, currentP
 
           {user ? (
              <div className="flex items-center gap-4">
-                <span className="text-sm text-white font-medium">Hola, {user.name}</span>
+                <span className="text-sm text-white font-medium truncate max-w-[100px]">Hola, {user.name.split(' ')[0]}</span>
                 <button 
                   onClick={handleLogout}
                   className="text-white/60 hover:text-white"
@@ -114,34 +122,69 @@ const Navbar: React.FC<NavbarProps> = ({ onNavigate, onScrollToSection, currentP
           </button>
         </div>
 
-        {/* Mobile Toggle */}
-        <button 
-          className="md:hidden text-white"
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-        >
-          {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
+        {/* Mobile Actions & Toggle */}
+        <div className="lg:hidden flex items-center gap-2 z-[70] relative">
+           {/* Mobile Cart Icon - Hide when menu open to clean up header */}
+           {!mobileMenuOpen && (
+             <button 
+               onClick={onOpenCart}
+               className="text-white hover:text-lime-400 transition-colors relative p-2"
+             >
+               <ShoppingCart size={24} />
+               {cartCount > 0 && (
+                 <span className="absolute top-0 right-0 bg-lime-400 text-zinc-900 text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center transform scale-90">
+                   {cartCount}
+                 </span>
+               )}
+             </button>
+           )}
+
+           <button 
+            className="text-white p-2 hover:text-lime-400 transition-colors"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          >
+            {mobileMenuOpen ? <X size={30} /> : <Menu size={30} />}
+          </button>
+        </div>
       </div>
 
-      {/* Mobile Menu */}
-      {mobileMenuOpen && (
-        <div className="absolute top-full left-0 right-0 bg-zinc-900 border-t border-zinc-800 p-6 md:hidden flex flex-col space-y-4 shadow-xl">
-          <button onClick={() => handlePageClick('home')} className="text-left text-white/80 hover:text-white">Inicio</button>
-          <button onClick={() => handlePageClick('shop')} className="text-left text-white/80 hover:text-white">Tienda</button>
-          <button onClick={() => handlePageClick('about-us')} className="text-left text-white/80 hover:text-white">Nosotros</button>
-          <button onClick={() => handlePageClick('contact')} className="text-left text-white/80 hover:text-white">Contacto</button>
-          {user?.role === 'admin' && (
-             <button onClick={() => handlePageClick('admin')} className="text-left text-lime-400 hover:text-lime-300">Admin Panel</button>
-          )}
-          <hr className="border-zinc-800" />
-          {user ? (
-            <button onClick={handleLogout} className="text-left text-white/80 hover:text-white">Cerrar Sesión</button>
-          ) : (
-            <button onClick={() => handlePageClick('login')} className="text-left text-white/80 hover:text-white">Entrar</button>
-          )}
-          <button onClick={() => handlePageClick('shop')} className="bg-lime-400 text-zinc-900 px-5 py-3 rounded-full text-center font-semibold">Ir a Tienda</button>
-        </div>
-      )}
+      {/* Mobile Full Screen Menu - Overlay */}
+      <div 
+        className={`fixed inset-0 w-screen h-[100dvh] bg-zinc-950 z-[60] flex flex-col justify-center items-center transition-all duration-500 ease-in-out ${
+          mobileMenuOpen 
+            ? 'opacity-100 visible translate-y-0' 
+            : 'opacity-0 invisible -translate-y-full'
+        }`}
+      >
+          {/* Centered Content */}
+          <div className="flex flex-col items-center justify-center gap-8 w-full px-8 py-20">
+             <button onClick={() => handlePageClick('home')} className="text-3xl font-bold text-white hover:text-lime-400 transition-colors">Inicio</button>
+             <button onClick={() => handlePageClick('shop')} className="text-3xl font-bold text-white hover:text-lime-400 transition-colors">Tienda</button>
+             <button onClick={() => handlePageClick('about-us')} className="text-3xl font-bold text-white hover:text-lime-400 transition-colors">Nosotros</button>
+             <button onClick={() => handlePageClick('contact')} className="text-3xl font-bold text-white hover:text-lime-400 transition-colors">Contacto</button>
+             
+             {user?.role === 'admin' && (
+                <button onClick={() => handlePageClick('admin')} className="text-2xl font-bold text-lime-400 hover:text-lime-300 transition-colors mt-2">Panel Admin</button>
+             )}
+
+             <div className="w-16 h-[1px] bg-zinc-800 my-4"></div>
+
+             {user ? (
+               <button onClick={handleLogout} className="text-lg font-medium text-white/60 hover:text-white border border-zinc-800 px-8 py-3 rounded-full w-full max-w-xs">
+                 Cerrar Sesión
+               </button>
+             ) : (
+               <div className="flex flex-col gap-4 w-full max-w-xs">
+                   <button onClick={() => handlePageClick('login')} className="border border-white text-white text-lg font-semibold px-8 py-3 rounded-full w-full hover:bg-white hover:text-zinc-900 transition-all">
+                     Inicia Sesión
+                   </button>
+                   <button onClick={() => handlePageClick('signup')} className="bg-white text-zinc-950 text-lg font-bold px-8 py-3 rounded-full w-full hover:bg-zinc-200 transition-all">
+                     Empieza Hoy
+                   </button>
+               </div>
+             )}
+          </div>
+      </div>
     </nav>
   );
 };

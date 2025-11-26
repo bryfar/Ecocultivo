@@ -1,30 +1,45 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useStore, Order } from '../../context/StoreContext';
+import { useStore, Order, Product } from '../../context/StoreContext';
 import { 
   LayoutDashboard, ShoppingBag, ListOrdered, CreditCard, Users, PieChart, 
   Settings, LogOut, Bell, Filter, ChevronDown, MoreHorizontal,
-  X, Truck, Package, CheckCircle, Clock, Ban, Plus, Trash2, TrendingUp, DollarSign, User, Save, Database, Loader2
+  X, Truck, Package, CheckCircle, Clock, Ban, Plus, Trash2, TrendingUp, DollarSign, User, Save, Database, Loader2,
+  Menu, Edit, Upload, Eye, ArrowLeft, Calendar
 } from 'lucide-react';
 import Logo from '../ui/Logo';
+import ProductDetail from '../ProductDetail';
 
 interface AdminDashboardProps {
   onNavigate: (page: any) => void;
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
-  const { orders, products, user, logout, updateOrderStatus, addProduct, deleteProduct, getAnalytics, updateUserProfile, generateHistoricalOrders } = useStore();
+  const { orders, products, user, logout, updateOrderStatus, addProduct, updateProduct, deleteProduct, getAnalytics, updateUserProfile, generateHistoricalOrders } = useStore();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [showAddProduct, setShowAddProduct] = useState(false);
-  const [salesTimeRange, setSalesTimeRange] = useState<'weekly' | 'monthly' | 'annual'>('annual');
+  
+  // Product Edit Mode State
+  const [isProductEditMode, setIsProductEditMode] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  // Order Filters
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [paymentFilter, setPaymentFilter] = useState('All');
+
+  // Customer Detail View
+  const [viewingCustomer, setViewingCustomer] = useState<any>(null);
+
+  const [salesTimeRange, setSalesTimeRange] = useState<'daily' | 'weekly' | 'monthly' | 'annual'>('weekly');
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Mobile Sidebar State
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   // Interactive UI States
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   
-  // Refs for click outside
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -34,17 +49,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
       phone: user?.phone || ''
   });
 
-  // Product Form State
-  const [newProduct, setNewProduct] = useState({
-    name: '',
-    price: '',
-    category: 'Verduras',
-    image: 'https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?q=80&w=2670&auto=format&fit=crop'
-  });
-
   const analytics = getAnalytics();
 
-  // Handle Click Outside for dropdowns
+  // Handle Click Outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
@@ -63,18 +70,48 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
     onNavigate('login');
   };
 
-  const handleAddProduct = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newProduct.name && newProduct.price) {
-        addProduct({
-            name: newProduct.name,
-            price: parseFloat(newProduct.price),
-            category: newProduct.category,
-            image: newProduct.image
-        });
-        setShowAddProduct(false);
-        setNewProduct({ name: '', price: '', category: 'Verduras', image: 'https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?q=80&w=2670&auto=format&fit=crop' });
-    }
+  const startEditingProduct = (product?: Product) => {
+      if (product) {
+          setEditingProduct({...product});
+      } else {
+          // New Product Template
+          setEditingProduct({
+              id: 0, // Temporary ID
+              name: '',
+              price: 0,
+              category: 'Verduras',
+              image: 'https://images.unsplash.com/photo-1595841696677-6489ff3f8cd1?q=80&w=2670&auto=format&fit=crop',
+              rating: 5.0,
+              sales: 0,
+              description: '',
+              nutritionInfo: '',
+              shippingInfo: '',
+              relatedProductIds: []
+          });
+      }
+      setIsProductEditMode(true);
+  };
+
+  const saveProductEdit = async () => {
+      if (editingProduct) {
+          if (editingProduct.id === 0) {
+              // Create new
+              const { id, ...rest } = editingProduct;
+              await addProduct(rest);
+          } else {
+              // Update existing
+              await updateProduct(editingProduct);
+          }
+          setIsProductEditMode(false);
+          setEditingProduct(null);
+      }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0] && editingProduct) {
+          const url = URL.createObjectURL(e.target.files[0]);
+          setEditingProduct({...editingProduct, image: url});
+      }
   };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -116,7 +153,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
           });
 
       } else if (salesTimeRange === 'monthly') {
-          // Monthly: Bucket into 4 weeks of current month
+          // Monthly: Bucket into 4 weeks
           labels = ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4', 'Sem 5'];
           values = new Array(5).fill(0);
           
@@ -129,19 +166,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
               }
           });
 
-      } else {
+      } else if (salesTimeRange === 'weekly') {
           // Weekly: Last 7 days
-          labels = [];
-          values = [];
-          
-          // Generate labels for last 7 days
           for (let i = 6; i >= 0; i--) {
               const d = new Date(now);
               d.setDate(now.getDate() - i);
               const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
               labels.push(days[d.getDay()]);
               
-              // Sum orders for this day
               const dayTotal = orders.reduce((sum, order) => {
                   const od = new Date(order.date);
                   if (od.getDate() === d.getDate() && od.getMonth() === d.getMonth() && order.paymentStatus === 'Pagado') {
@@ -151,9 +183,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
               }, 0);
               values.push(dayTotal);
           }
+      } else {
+          // Daily: Breakdown by Hour (Simulated buckets for demo) for current day
+          labels = ['00h', '04h', '08h', '12h', '16h', '20h'];
+          values = new Array(6).fill(0);
+          orders.forEach(order => {
+              const d = new Date(order.date);
+              if (d.getDate() === now.getDate() && order.paymentStatus === 'Pagado') {
+                  const hour = d.getHours();
+                  const bucket = Math.floor(hour / 4);
+                  if(bucket < 6) values[bucket] += order.total;
+              }
+          });
       }
 
-      const max = Math.max(...values, 100) * 1.1; // Add 10% headroom
+      const max = Math.max(...values, 100) * 1.1; 
       return { labels, values, max };
   };
 
@@ -162,7 +206,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
   // Dynamic Notifications Logic
   const getNotifications = () => {
       const pendingOrders = orders.filter(o => o.status === 'Pendiente').length;
-      const lowStock = products.filter(p => p.sales > 50).length; // Mock logic for low stock
+      const lowStock = products.filter(p => p.sales > 50).length; 
       
       const notifs = [];
       if (pendingOrders > 0) notifs.push({ title: 'Pedidos Pendientes', msg: `Tienes ${pendingOrders} pedidos por enviar.`, icon: <Package size={16} className="text-blue-400"/>, time: 'Ahora' });
@@ -173,28 +217,157 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
   }
   const notifications = getNotifications();
 
-  // Sub-components for rendering different views
+  // ---- VIEW COMPONENTS ----
+
+  const RenderProductEditor = () => {
+      if (!editingProduct) return null;
+
+      return (
+          <div className="fixed inset-0 bg-zinc-950 z-50 flex flex-col h-full w-full" data-lenis-prevent>
+              {/* Header - Fixed */}
+              <div className="h-16 border-b border-zinc-900 flex items-center justify-between px-6 bg-zinc-950 flex-shrink-0 z-20">
+                  <div className="flex items-center gap-4">
+                      <button onClick={() => setIsProductEditMode(false)} className="text-zinc-400 hover:text-white flex items-center gap-2">
+                          <ArrowLeft size={20} /> <span className="hidden md:inline">Volver</span>
+                      </button>
+                      <h2 className="text-lg font-bold text-white">
+                          {editingProduct.id === 0 ? 'Nuevo Producto' : 'Editar Producto'}
+                      </h2>
+                  </div>
+                  <button onClick={saveProductEdit} className="bg-lime-400 text-zinc-900 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-lime-300">
+                      <Save size={16} /> Guardar
+                  </button>
+              </div>
+
+              {/* 
+                  Main Layout:
+                  - Mobile: flex-col, main container scrolls (overflow-y-auto). Preview stacks below form.
+                  - Desktop: flex-row, main container overflow-hidden. Panels scroll independently.
+                  - Added 'data-lenis-prevent' to ensure native scroll works.
+              */}
+              <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden h-full bg-zinc-900" data-lenis-prevent>
+                  
+                  {/* Editor Form */}
+                  <div className="w-full lg:w-1/3 p-6 h-auto lg:h-full lg:overflow-y-auto border-r border-zinc-900 bg-zinc-900/50 custom-scrollbar shrink-0" data-lenis-prevent>
+                      <h3 className="text-zinc-400 uppercase text-xs font-bold tracking-wider mb-6 sticky top-0 bg-zinc-900/95 backdrop-blur py-2 z-10">Contenido del Producto</h3>
+                      
+                      <div className="space-y-6 pb-10">
+                          <div>
+                              <label className="block text-xs font-medium text-zinc-500 mb-2">Nombre</label>
+                              <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={editingProduct.name} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} />
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                  <label className="block text-xs font-medium text-zinc-500 mb-2">Precio (S/)</label>
+                                  <input type="number" step="0.01" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={editingProduct.price} onChange={e => setEditingProduct({...editingProduct, price: parseFloat(e.target.value)})} />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-medium text-zinc-500 mb-2">Categoría</label>
+                                  <select className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={editingProduct.category} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})}>
+                                      <option>Verduras</option>
+                                      <option>Frutas</option>
+                                      <option>Hierbas</option>
+                                  </select>
+                              </div>
+                          </div>
+
+                          <div>
+                              <label className="block text-xs font-medium text-zinc-500 mb-2">Imagen Principal</label>
+                              <div className="flex flex-col gap-2">
+                                  <div className="flex items-center gap-2">
+                                      <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none text-xs" value={editingProduct.image} onChange={e => setEditingProduct({...editingProduct, image: e.target.value})} placeholder="URL o subir local" />
+                                  </div>
+                                  <label className="cursor-pointer bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                      <Upload size={14} /> Subir Imagen Local
+                                      <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                                  </label>
+                              </div>
+                          </div>
+
+                          <div>
+                              <label className="block text-xs font-medium text-zinc-500 mb-2">Descripción (Pestaña 1)</label>
+                              <textarea rows={4} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none resize-none" value={editingProduct.description || ''} onChange={e => setEditingProduct({...editingProduct, description: e.target.value})} placeholder="Descripción detallada del producto..." />
+                          </div>
+
+                          <div>
+                              <label className="block text-xs font-medium text-zinc-500 mb-2">Información Nutricional (Pestaña 2)</label>
+                              <textarea rows={3} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none resize-none" value={editingProduct.nutritionInfo || ''} onChange={e => setEditingProduct({...editingProduct, nutritionInfo: e.target.value})} placeholder="Calorías, vitaminas, etc..." />
+                          </div>
+
+                          <div>
+                              <label className="block text-xs font-medium text-zinc-500 mb-2">Información de Envíos (Pestaña 3)</label>
+                              <textarea rows={2} className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none resize-none" value={editingProduct.shippingInfo || ''} onChange={e => setEditingProduct({...editingProduct, shippingInfo: e.target.value})} placeholder="Tiempos de entrega..." />
+                          </div>
+
+                          <div>
+                              <label className="block text-xs font-medium text-zinc-500 mb-2">Productos Relacionados (Selección Manual)</label>
+                              <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2 max-h-40 overflow-y-auto" data-lenis-prevent>
+                                  {products.filter(p => p.id !== editingProduct.id).map(p => (
+                                      <label key={p.id} className="flex items-center gap-2 p-2 hover:bg-zinc-900 rounded cursor-pointer">
+                                          <input 
+                                            type="checkbox" 
+                                            className="accent-lime-400"
+                                            checked={editingProduct.relatedProductIds?.includes(p.id)}
+                                            onChange={(e) => {
+                                                const current = editingProduct.relatedProductIds || [];
+                                                if (e.target.checked) {
+                                                    setEditingProduct({...editingProduct, relatedProductIds: [...current, p.id]});
+                                                } else {
+                                                    setEditingProduct({...editingProduct, relatedProductIds: current.filter(id => id !== p.id)});
+                                                }
+                                            }}
+                                          />
+                                          <img src={p.image} className="w-6 h-6 rounded object-cover" />
+                                          <span className="text-sm text-zinc-300">{p.name}</span>
+                                      </label>
+                                  ))}
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Live Preview */}
+                  <div className="w-full lg:w-2/3 bg-white relative h-auto lg:h-full lg:overflow-y-auto block shrink-0 border-t lg:border-t-0 lg:border-l border-zinc-800" data-lenis-prevent>
+                      <div className="absolute top-4 right-4 bg-lime-400 text-zinc-900 text-xs font-bold px-3 py-1 rounded-full z-10 shadow-lg">
+                          VISTA PREVIA EN VIVO
+                      </div>
+                      <div className="min-h-full">
+                        <ProductDetail 
+                            product={editingProduct} 
+                            onNavigate={() => {}} 
+                            onProductSelect={() => {}} 
+                            onOpenCart={() => {}}
+                            previewMode={true}
+                        />
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
+  }
+
   const RenderDashboard = () => (
-    <div className="p-8 space-y-8 overflow-y-auto h-full custom-scrollbar">
-        <div className="flex justify-between items-center">
+    <div className="p-4 md:p-8 space-y-8 flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-zinc-950" data-lenis-prevent>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 flex-shrink-0">
             <h2 className="text-2xl font-bold text-white">Resumen Comercial</h2>
-            <div className="flex gap-2 bg-zinc-900 p-1 rounded-lg border border-zinc-800">
-                {(['weekly', 'monthly', 'annual'] as const).map(range => (
+            <div className="flex flex-wrap gap-2 bg-zinc-900 p-1 rounded-lg border border-zinc-800 w-full md:w-auto">
+                {(['daily', 'weekly', 'monthly', 'annual'] as const).map(range => (
                     <button 
                         key={range}
                         onClick={() => setSalesTimeRange(range)}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                        className={`flex-1 md:flex-none px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                             salesTimeRange === range ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                         }`}
                     >
-                        {range === 'weekly' ? 'Semanal' : range === 'monthly' ? 'Mensual' : 'Anual'}
+                        {range === 'daily' ? 'Diario' : range === 'weekly' ? 'Semanal' : range === 'monthly' ? 'Mensual' : 'Anual'}
                     </button>
                 ))}
             </div>
         </div>
         
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 flex-shrink-0">
             <StatsCard 
                 title="Ingresos Totales" 
                 value={`S/ ${analytics.totalRevenue.toFixed(2)}`} 
@@ -229,15 +402,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
         </div>
 
         {/* Chart Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-96">
-            <div className="lg:col-span-2 bg-zinc-900 rounded-3xl p-6 border border-zinc-800 flex flex-col">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-auto lg:h-96 flex-shrink-0">
+            <div className="lg:col-span-2 bg-zinc-900 rounded-3xl p-6 border border-zinc-800 flex flex-col min-h-[300px]">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-white flex items-center gap-2">
                         <TrendingUp size={16} className="text-lime-400"/> 
                         Análisis de Ventas
                     </h3>
-                    <div className="text-xs text-zinc-500 font-medium px-3 py-1 bg-zinc-950 rounded border border-zinc-800">
-                        {salesTimeRange === 'weekly' ? 'Últimos 7 días' : salesTimeRange === 'monthly' ? 'Este Mes' : 'Este Año'}
+                    <div className="text-xs text-zinc-500 font-medium px-3 py-1 bg-zinc-950 rounded border border-zinc-800 hidden sm:block">
+                        {salesTimeRange === 'daily' ? 'Hoy' : salesTimeRange === 'weekly' ? 'Últimos 7 días' : salesTimeRange === 'monthly' ? 'Este Mes' : 'Este Año'}
                     </div>
                 </div>
                 {analytics.totalOrders === 0 ? (
@@ -254,17 +427,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
                         </button>
                     </div>
                 ) : (
-                    <div className="flex-1 flex items-end justify-between gap-2 px-2">
+                    <div className="flex-1 flex items-end justify-between gap-2 px-2 w-full overflow-x-auto" data-lenis-prevent>
                         {chartData.values.map((val, i) => {
-                            const heightPercent = Math.max((val / chartData.max) * 100, 2); // Min 2% height for visibility
+                            const heightPercent = chartData.max > 0 ? Math.max((val / chartData.max) * 100, 2) : 2;
                             return (
-                                <div key={i} className="w-full flex flex-col items-center gap-2 group cursor-pointer">
+                                <div key={i} className="flex-1 flex flex-col items-center gap-2 group cursor-pointer min-w-[30px]">
                                     <div className="w-full bg-zinc-800 rounded-t-lg hover:bg-lime-400 transition-all relative" style={{ height: `${heightPercent}%` }}>
                                         <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-zinc-800 text-white text-xs font-bold px-2 py-1.5 rounded border border-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
                                             S/ {val.toFixed(2)}
                                         </div>
                                     </div>
-                                    <span className="text-xs text-zinc-500 group-hover:text-white transition-colors">{chartData.labels[i]}</span>
+                                    <span className="text-[10px] md:text-xs text-zinc-500 group-hover:text-white transition-colors truncate w-full text-center">{chartData.labels[i]}</span>
                                 </div>
                             )
                         })}
@@ -293,7 +466,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
   );
 
   const RenderCustomers = () => {
-    // Derive unique customers from orders
     const customers = Array.from(new Set(orders.map(o => o.email))).map(email => {
         const customerOrders = orders.filter(o => o.email === email);
         const lastOrder = customerOrders.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
@@ -303,194 +475,347 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
             email: email,
             totalOrders: customerOrders.length,
             totalSpent: totalSpent,
-            lastActive: lastOrder.date
+            lastActive: lastOrder.date,
+            orders: customerOrders
         };
     });
 
     return (
-        <div className="p-8 h-full flex flex-col">
-            <h2 className="text-2xl font-bold text-white mb-8">Clientes ({customers.length})</h2>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col">
-                <div className="grid grid-cols-[2fr_2fr_1fr_1fr_1fr] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50">
-                    <div>Cliente</div>
-                    <div>Email</div>
-                    <div>Pedidos</div>
-                    <div>Total Gastado</div>
-                    <div>Última Actividad</div>
-                </div>
-                <div className="overflow-y-auto flex-1">
-                    {customers.map((customer, idx) => (
-                        <div key={idx} className="grid grid-cols-[2fr_2fr_1fr_1fr_1fr] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-lime-400/20 flex items-center justify-center text-xs font-bold text-lime-400">
-                                    {customer.name.charAt(0)}
-                                </div>
-                                <span className="font-medium text-white">{customer.name}</span>
-                            </div>
-                            <div className="text-zinc-400 text-sm">{customer.email}</div>
-                            <div className="text-white font-medium">{customer.totalOrders}</div>
-                            <div className="text-lime-400 font-medium">S/ {customer.totalSpent.toFixed(2)}</div>
-                            <div className="text-zinc-500 text-xs">{new Date(customer.lastActive).toLocaleDateString()}</div>
+        <div className="p-4 md:p-8 h-full flex flex-col overflow-hidden">
+            <h2 className="text-2xl font-bold text-white mb-8 flex-shrink-0">Clientes ({customers.length})</h2>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col min-w-0">
+                <div className="flex-1 overflow-y-auto custom-scrollbar" data-lenis-prevent>
+                    <div className="min-w-[800px]">
+                        <div className="grid grid-cols-[2fr_2fr_1fr_1fr_1fr_auto] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50 sticky top-0 z-10">
+                            <div>Cliente</div>
+                            <div>Email</div>
+                            <div>Pedidos</div>
+                            <div>Total Gastado</div>
+                            <div>Última Actividad</div>
+                            <div className="text-right">Detalles</div>
                         </div>
-                    ))}
+                        <div className="">
+                            {customers.map((customer, idx) => (
+                                <div key={idx} className="grid grid-cols-[2fr_2fr_1fr_1fr_1fr_auto] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-lime-400/20 flex items-center justify-center text-xs font-bold text-lime-400">
+                                            {customer.name.charAt(0)}
+                                        </div>
+                                        <span className="font-medium text-white truncate">{customer.name}</span>
+                                    </div>
+                                    <div className="text-zinc-400 text-sm truncate">{customer.email}</div>
+                                    <div className="text-white font-medium">{customer.totalOrders}</div>
+                                    <div className="text-lime-400 font-medium">S/ {customer.totalSpent.toFixed(2)}</div>
+                                    <div className="text-zinc-500 text-xs">{new Date(customer.lastActive).toLocaleDateString()}</div>
+                                    <div className="text-right">
+                                        <button 
+                                            onClick={() => setViewingCustomer(customer)}
+                                            className="p-2 text-zinc-400 hover:text-lime-400 hover:bg-zinc-800 rounded-lg transition-colors"
+                                            title="Ver Detalles"
+                                        >
+                                            <Eye size={18} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            {/* Customer Detail Modal */}
+            {viewingCustomer && (
+                <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-zinc-900 border border-zinc-800 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 flex flex-col max-h-[90vh]">
+                        <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-950">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-full bg-lime-400 flex items-center justify-center text-xl font-bold text-zinc-900">
+                                    {viewingCustomer.name.charAt(0)}
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-white">{viewingCustomer.name}</h2>
+                                    <p className="text-sm text-zinc-500">{viewingCustomer.email}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setViewingCustomer(null)} className="p-2 hover:bg-zinc-800 rounded-full transition-colors">
+                                <X className="text-zinc-500 hover:text-white" />
+                            </button>
+                        </div>
+                        <div className="p-6 flex-1 overflow-y-auto custom-scrollbar" data-lenis-prevent>
+                            <div className="grid grid-cols-3 gap-4 mb-8">
+                                <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-800 text-center">
+                                    <p className="text-xs text-zinc-500 uppercase">Total Gastado</p>
+                                    <p className="text-xl font-bold text-lime-400">S/ {viewingCustomer.totalSpent.toFixed(2)}</p>
+                                </div>
+                                <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-800 text-center">
+                                    <p className="text-xs text-zinc-500 uppercase">Pedidos</p>
+                                    <p className="text-xl font-bold text-white">{viewingCustomer.totalOrders}</p>
+                                </div>
+                                <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-800 text-center">
+                                    <p className="text-xs text-zinc-500 uppercase">Última Compra</p>
+                                    <p className="text-sm font-bold text-white mt-1">{new Date(viewingCustomer.lastActive).toLocaleDateString()}</p>
+                                </div>
+                            </div>
+                            
+                            <h3 className="text-sm font-bold text-zinc-400 uppercase mb-4">Historial de Pedidos</h3>
+                            <div className="space-y-3">
+                                {viewingCustomer.orders.map((order: any) => (
+                                    <div key={order.id} className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex justify-between items-center">
+                                        <div>
+                                            <div className="flex items-center gap-3 mb-1">
+                                                <span className="text-sm font-mono text-zinc-300">#{order.id.slice(0,8)}</span>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded border ${order.status === 'Entregado' ? 'text-lime-400 border-lime-400/30' : 'text-blue-400 border-blue-400/30'}`}>
+                                                    {order.status}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-zinc-500">{new Date(order.date).toLocaleString()}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-bold text-white">S/ {order.total.toFixed(2)}</p>
+                                            <p className="text-xs text-zinc-500">{order.items.length} items</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
   };
 
   const RenderPayments = () => (
-    <div className="p-8 h-full flex flex-col">
-        <h2 className="text-2xl font-bold text-white mb-8">Pagos & Transacciones</h2>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col">
-            <div className="grid grid-cols-[1fr_2fr_1fr_1fr_1fr] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50">
-                <div>ID Pedido</div>
-                <div>Cliente</div>
-                <div>Fecha</div>
-                <div>Monto</div>
-                <div>Estado</div>
-            </div>
-            <div className="overflow-y-auto flex-1">
-                {orders.map((order) => (
-                    <div key={order.id} className="grid grid-cols-[1fr_2fr_1fr_1fr_1fr] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
-                         <div className="font-mono text-zinc-400 text-sm">{order.id}</div>
-                         <div className="text-white font-medium">{order.customerName}</div>
-                         <div className="text-zinc-500 text-xs">{new Date(order.date).toLocaleDateString()} {new Date(order.date).toLocaleTimeString()}</div>
-                         <div className="text-white font-medium">S/ {order.total.toFixed(2)}</div>
-                         <div>
-                            <span className={`text-xs px-2.5 py-1 rounded-md font-medium border ${
-                                order.paymentStatus === 'Pagado' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 
-                                order.paymentStatus === 'Reembolsado' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                                'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
-                            }`}>
-                                {order.paymentStatus}
-                            </span>
-                         </div>
+    <div className="p-4 md:p-8 h-full flex flex-col overflow-hidden">
+        <h2 className="text-2xl font-bold text-white mb-8 flex-shrink-0">Pagos & Transacciones</h2>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col min-w-0">
+            <div className="flex-1 overflow-y-auto custom-scrollbar" data-lenis-prevent>
+                <div className="min-w-[600px]">
+                    <div className="grid grid-cols-[1fr_2fr_1fr_1fr_1fr] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50 sticky top-0 z-10">
+                        <div>ID Pedido</div>
+                        <div>Cliente</div>
+                        <div>Fecha</div>
+                        <div>Monto</div>
+                        <div>Estado</div>
                     </div>
-                ))}
+                    <div>
+                        {orders.map((order) => (
+                            <div key={order.id} className="grid grid-cols-[1fr_2fr_1fr_1fr_1fr] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
+                                <div className="font-mono text-zinc-400 text-sm">{order.id.slice(0,8)}...</div>
+                                <div className="text-white font-medium truncate">{order.customerName}</div>
+                                <div className="text-zinc-500 text-xs">{new Date(order.date).toLocaleDateString()}</div>
+                                <div className="text-white font-medium">S/ {order.total.toFixed(2)}</div>
+                                <div>
+                                    <span className={`text-xs px-2.5 py-1 rounded-md font-medium border ${
+                                        order.paymentStatus === 'Pagado' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 
+                                        order.paymentStatus === 'Reembolsado' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                                        'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+                                    }`}>
+                                        {order.paymentStatus}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
         </div>
     </div>
   );
 
   const RenderProductsCMS = () => (
-    <div className="p-8 h-full flex flex-col">
-        <div className="flex justify-between items-center mb-8">
+    <div className="p-4 md:p-8 h-full flex flex-col overflow-hidden">
+        <div className="flex justify-between items-center mb-8 flex-shrink-0">
             <h2 className="text-2xl font-bold text-white">Gestión de Productos</h2>
             <button 
-                onClick={() => setShowAddProduct(true)}
+                onClick={() => startEditingProduct()}
                 className="bg-lime-400 hover:bg-lime-300 text-zinc-950 px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
             >
-                <Plus size={18} /> Nuevo Producto
+                <Plus size={18} /> <span className="hidden sm:inline">Nuevo Producto</span>
             </button>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col">
-            <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr_auto] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50">
-                <div className="w-12">Imagen</div>
-                <div>Nombre</div>
-                <div>Categoría</div>
-                <div>Precio</div>
-                <div>Ventas</div>
-                <div className="text-right">Acciones</div>
-            </div>
-            
-            <div className="overflow-y-auto flex-1">
-                {products.map(product => (
-                    <div key={product.id} className="grid grid-cols-[auto_1fr_1fr_1fr_1fr_auto] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
-                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-800">
-                            <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
-                        </div>
-                        <div className="font-medium text-white">{product.name}</div>
-                        <div className="text-zinc-400 text-sm">
-                            <span className="px-2 py-1 rounded bg-zinc-800 border border-zinc-700">{product.category}</span>
-                        </div>
-                        <div className="text-lime-400 font-medium">S/ {product.price.toFixed(2)}</div>
-                        <div className="text-zinc-300">{product.sales} un.</div>
-                        <div className="text-right">
-                            <button 
-                                onClick={() => deleteProduct(product.id)}
-                                className="p-2 hover:bg-red-500/10 text-zinc-500 hover:text-red-500 rounded-lg transition-colors"
-                            >
-                                <Trash2 size={18} />
-                            </button>
-                        </div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col min-w-0">
+            <div className="flex-1 overflow-y-auto custom-scrollbar" data-lenis-prevent>
+                <div className="min-w-[700px]">
+                    <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr_auto] gap-4 px-6 py-4 border-b border-zinc-800 text-xs font-medium text-zinc-500 uppercase bg-zinc-950/50 sticky top-0 z-10">
+                        <div className="w-12">Imagen</div>
+                        <div>Nombre</div>
+                        <div>Categoría</div>
+                        <div>Precio</div>
+                        <div>Ventas</div>
+                        <div className="text-right">Acciones</div>
                     </div>
-                ))}
+                    
+                    <div>
+                        {products.map(product => (
+                            <div key={product.id} className="grid grid-cols-[auto_1fr_1fr_1fr_1fr_auto] gap-4 items-center px-6 py-4 border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors">
+                                <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-800">
+                                    <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+                                </div>
+                                <div className="font-medium text-white truncate">{product.name}</div>
+                                <div className="text-zinc-400 text-sm">
+                                    <span className="px-2 py-1 rounded bg-zinc-800 border border-zinc-700">{product.category}</span>
+                                </div>
+                                <div className="text-lime-400 font-medium">S/ {product.price.toFixed(2)}</div>
+                                <div className="text-zinc-300">{product.sales} un.</div>
+                                <div className="text-right flex justify-end gap-2">
+                                    <button 
+                                        onClick={() => startEditingProduct(product)}
+                                        className="p-2 hover:bg-blue-500/10 text-zinc-500 hover:text-blue-400 rounded-lg transition-colors"
+                                        title="Editar Completo"
+                                    >
+                                        <Edit size={18} />
+                                    </button>
+                                    <button 
+                                        onClick={() => deleteProduct(product.id)}
+                                        className="p-2 hover:bg-red-500/10 text-zinc-500 hover:text-red-500 rounded-lg transition-colors"
+                                        title="Eliminar"
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
         </div>
     </div>
   );
 
-  const RenderOrders = () => (
-    <div className="flex-1 flex overflow-hidden">
+  const RenderOrders = () => {
+    // Functional Filtering Logic
+    const filteredOrders = orders.filter(order => {
+        if (statusFilter !== 'All' && order.status !== statusFilter) return false;
+        if (paymentFilter !== 'All' && order.paymentStatus !== paymentFilter) return false;
+        return true;
+    });
+
+    return (
+    <div className="flex-1 flex overflow-hidden flex-col md:flex-row">
         {/* Order List */}
-        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-           {/* Filters */}
-           <div className="flex items-center gap-4 mb-6 text-sm">
-              <FilterDropdown label="Status: All" />
-              <FilterDropdown label="Payment: All" />
-              <button className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-300 hover:text-white">
+        <div className={`flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar ${selectedOrder ? 'hidden md:block' : 'block'}`} data-lenis-prevent>
+           {/* Functional Filters */}
+           <div className="flex flex-wrap items-center gap-4 mb-6 text-sm">
+              <div className="relative">
+                  <select 
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="appearance-none bg-zinc-900 border border-zinc-800 rounded-lg pl-4 pr-10 py-2 text-zinc-300 hover:text-white text-xs font-medium focus:border-lime-400 outline-none cursor-pointer"
+                  >
+                      <option value="All">Status: All</option>
+                      <option value="Pendiente">Pendiente</option>
+                      <option value="Enviado">Enviado</option>
+                      <option value="Entregado">Entregado</option>
+                      <option value="Cancelado">Cancelado</option>
+                  </select>
+                  <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+              </div>
+
+              <div className="relative">
+                  <select 
+                    value={paymentFilter}
+                    onChange={(e) => setPaymentFilter(e.target.value)}
+                    className="appearance-none bg-zinc-900 border border-zinc-800 rounded-lg pl-4 pr-10 py-2 text-zinc-300 hover:text-white text-xs font-medium focus:border-lime-400 outline-none cursor-pointer"
+                  >
+                      <option value="All">Payment: All</option>
+                      <option value="Pagado">Pagado</option>
+                      <option value="Pendiente">Pendiente</option>
+                      <option value="Reembolsado">Reembolsado</option>
+                  </select>
+                  <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+              </div>
+
+              <button className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-300 hover:text-white hover:border-lime-400 transition-colors">
                 <Filter size={14} /> Filtros
               </button>
            </div>
 
-           {/* Table Header */}
-           <div className="grid grid-cols-[auto_1fr_2fr_1fr_1fr_1fr_auto] gap-4 px-4 py-3 text-xs font-medium text-zinc-500 uppercase border-b border-zinc-800/50 bg-zinc-900/30">
-             <input type="checkbox" className="rounded bg-zinc-900 border-zinc-800" />
-             <div>Nº Orden</div>
-             <div>Cliente</div>
-             <div>Pago</div>
-             <div className="text-right">Total</div>
-             <div>Estado</div>
-             <div></div>
+           {/* Mobile Card View for Orders */}
+           <div className="md:hidden space-y-4">
+               {filteredOrders.map(order => (
+                   <div 
+                     key={order.id}
+                     onClick={() => setSelectedOrder(order)}
+                     className="bg-zinc-900 border border-zinc-800 p-4 rounded-xl active:bg-zinc-800"
+                   >
+                       <div className="flex justify-between items-start mb-2">
+                           <span className="text-lime-400 font-mono text-xs">#{order.id.slice(0,6)}</span>
+                           <span className={`text-xs px-2 py-0.5 rounded border ${order.status === 'Entregado' ? 'text-lime-400 border-lime-400/30' : 'text-blue-400 border-blue-400/30'}`}>{order.status}</span>
+                       </div>
+                       <h3 className="text-white font-medium">{order.customerName}</h3>
+                       <div className="flex justify-between items-end mt-2">
+                           <p className="text-zinc-500 text-xs">{new Date(order.date).toLocaleDateString()}</p>
+                           <p className="text-white font-bold">S/ {order.total.toFixed(2)}</p>
+                       </div>
+                   </div>
+               ))}
            </div>
 
-           {/* Table Body */}
-           <div className="space-y-1 mt-2">
-             {orders.map((order) => (
-               <div 
-                 key={order.id} 
-                 onClick={() => setSelectedOrder(order)}
-                 className={`grid grid-cols-[auto_1fr_2fr_1fr_1fr_1fr_auto] gap-4 items-center px-4 py-4 rounded-xl cursor-pointer transition-colors border border-transparent ${
-                   selectedOrder?.id === order.id ? 'bg-zinc-900 border-zinc-800' : 'hover:bg-zinc-900/50 hover:border-zinc-800/50'
-                 }`}
-               >
-                  <input type="checkbox" className="rounded bg-zinc-900 border-zinc-800 accent-lime-400" />
-                  <div className="font-medium text-white">{order.id.slice(0, 8)}...</div>
-                  <div className="flex items-center gap-3">
-                     <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
-                        {order.customerName.charAt(0)}
-                     </div>
-                     <span className="text-zinc-300 truncate">{order.customerName}</span>
-                  </div>
-                  <div className={`text-sm ${order.paymentStatus === 'Pagado' ? 'text-green-400' : 'text-zinc-400'}`}>
-                     ● {order.paymentStatus}
-                  </div>
-                  <div className="text-right font-medium text-white">
-                    S/ {order.total.toFixed(2)}
-                  </div>
-                  <div>
-                    <span className={`text-xs px-2.5 py-1 rounded-md font-medium border ${
-                         order.status === 'Entregado' ? 'bg-lime-400/10 text-lime-400 border-lime-400/20' : 
-                         order.status === 'Cancelado' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                         'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                    }`}>
-                      {order.status}
-                    </span>
-                  </div>
-                  <button className="text-zinc-500 hover:text-white p-1">
-                    <MoreHorizontal size={16} />
-                  </button>
+           {/* Desktop Table View */}
+           <div className="hidden md:block h-full flex flex-col">
+               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex-1 flex flex-col min-w-0">
+                   <div className="flex-1 overflow-y-auto custom-scrollbar" data-lenis-prevent>
+                       <div className="min-w-[700px]">
+                           <div className="grid grid-cols-[auto_1fr_2fr_1fr_1fr_1fr_auto] gap-4 px-4 py-3 text-xs font-medium text-zinc-500 uppercase border-b border-zinc-800/50 bg-zinc-950/30 sticky top-0 z-10">
+                             <input type="checkbox" className="rounded bg-zinc-900 border-zinc-800" />
+                             <div>Nº Orden</div>
+                             <div>Cliente</div>
+                             <div>Pago</div>
+                             <div className="text-right">Total</div>
+                             <div>Estado</div>
+                             <div></div>
+                           </div>
+
+                           <div className="space-y-1 mt-2">
+                             {filteredOrders.map((order) => (
+                               <div 
+                                 key={order.id} 
+                                 onClick={() => setSelectedOrder(order)}
+                                 className={`grid grid-cols-[auto_1fr_2fr_1fr_1fr_1fr_auto] gap-4 items-center px-4 py-4 rounded-xl cursor-pointer transition-colors border border-transparent ${
+                                   selectedOrder?.id === order.id ? 'bg-zinc-900 border-zinc-800' : 'hover:bg-zinc-900/50 hover:border-zinc-800/50'
+                                 }`}
+                               >
+                                  <input type="checkbox" className="rounded bg-zinc-900 border-zinc-800 accent-lime-400" />
+                                  <div className="font-medium text-white">{order.id.slice(0, 8)}...</div>
+                                  <div className="flex items-center gap-3">
+                                     <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
+                                        {order.customerName.charAt(0)}
+                                     </div>
+                                     <span className="text-zinc-300 truncate">{order.customerName}</span>
+                                  </div>
+                                  <div className={`text-sm ${order.paymentStatus === 'Pagado' ? 'text-green-400' : 'text-zinc-400'}`}>
+                                     ● {order.paymentStatus}
+                                  </div>
+                                  <div className="text-right font-medium text-white">
+                                    S/ {order.total.toFixed(2)}
+                                  </div>
+                                  <div>
+                                    <span className={`text-xs px-2.5 py-1 rounded-md font-medium border ${
+                                         order.status === 'Entregado' ? 'bg-lime-400/10 text-lime-400 border-lime-400/20' : 
+                                         order.status === 'Cancelado' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                                         'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                    }`}>
+                                      {order.status}
+                                    </span>
+                                  </div>
+                                  <button className="text-zinc-500 hover:text-white p-1">
+                                    <MoreHorizontal size={16} />
+                                  </button>
+                               </div>
+                             ))}
+                           </div>
+                       </div>
+                   </div>
                </div>
-             ))}
            </div>
         </div>
 
         {/* Details Panel */}
         {selectedOrder && (
-          <div className="w-96 border-l border-zinc-900 bg-zinc-950 flex flex-col overflow-y-auto custom-scrollbar shadow-2xl z-10">
-            <div className="p-6 border-b border-zinc-900 flex justify-between items-start">
+          <div className={`w-full md:w-96 border-l border-zinc-900 bg-zinc-950 flex flex-col overflow-y-auto custom-scrollbar shadow-2xl z-10 fixed md:relative inset-0 md:inset-auto ${selectedOrder ? 'block' : 'hidden'}`} data-lenis-prevent>
+            <div className="p-6 border-b border-zinc-900 flex justify-between items-start sticky top-0 bg-zinc-950 z-20">
               <div>
                 <h2 className="text-xl font-bold text-white flex items-center gap-3">
                   Orden #{selectedOrder.id.slice(0, 6)}
@@ -553,41 +878,61 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
           </div>
         )}
     </div>
-  );
+    );
+  };
+
+  if (isProductEditMode) {
+      return <RenderProductEditor />;
+  }
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-300 font-sans overflow-hidden">
+    <div className="flex h-screen bg-zinc-950 text-zinc-300 font-sans overflow-hidden relative">
       
+      {/* Mobile Sidebar Backdrop */}
+      {isSidebarOpen && (
+          <div className="fixed inset-0 bg-black/50 z-30 lg:hidden backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)}></div>
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 border-r border-zinc-900 flex flex-col flex-shrink-0 bg-zinc-950">
-        <div className="p-6 flex items-center justify-start">
-           <Logo className="h-10 w-auto" variant="light" />
+      <aside className={`fixed lg:relative inset-y-0 left-0 w-64 border-r border-zinc-900 flex flex-col flex-shrink-0 bg-zinc-950 z-40 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
+        <div className="p-6 flex items-center justify-between">
+           <Logo className="h-8 w-auto" variant="light" />
+           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-zinc-500">
+               <X size={24} />
+           </button>
         </div>
 
-        <nav className="flex-1 px-4 space-y-1 mt-4">
+        <nav className="flex-1 px-4 space-y-1 mt-4 overflow-y-auto" data-lenis-prevent>
           <p className="px-3 text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-2 mt-2">General</p>
-          <SidebarItem icon={<LayoutDashboard size={18}/>} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
-          <SidebarItem icon={<ListOrdered size={18}/>} label="Pedidos" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
-          <SidebarItem icon={<Users size={18}/>} label="Clientes" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
+          <SidebarItem icon={<LayoutDashboard size={18}/>} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => {setActiveTab('dashboard'); setIsSidebarOpen(false);}} />
+          <SidebarItem icon={<ListOrdered size={18}/>} label="Pedidos" active={activeTab === 'orders'} onClick={() => {setActiveTab('orders'); setIsSidebarOpen(false);}} />
+          <SidebarItem icon={<Users size={18}/>} label="Clientes" active={activeTab === 'customers'} onClick={() => {setActiveTab('customers'); setIsSidebarOpen(false);}} />
           
           <p className="px-3 text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-2 mt-6">Inventario</p>
-          <SidebarItem icon={<ShoppingBag size={18}/>} label="Productos" active={activeTab === 'products'} onClick={() => setActiveTab('products')} />
+          <SidebarItem icon={<ShoppingBag size={18}/>} label="Productos" active={activeTab === 'products'} onClick={() => {setActiveTab('products'); setIsSidebarOpen(false);}} />
           
           <p className="px-3 text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-2 mt-6">Finanzas</p>
-          <SidebarItem icon={<CreditCard size={18}/>} label="Pagos" active={activeTab === 'payments'} onClick={() => setActiveTab('payments')} />
+          <SidebarItem icon={<CreditCard size={18}/>} label="Pagos" active={activeTab === 'payments'} onClick={() => {setActiveTab('payments'); setIsSidebarOpen(false);}} />
         </nav>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 relative">
-        <header className="h-20 border-b border-zinc-900 flex items-center justify-between px-8 flex-shrink-0 bg-zinc-950">
-           <h1 className="text-2xl font-bold text-white capitalize">
-             {activeTab === 'dashboard' ? 'Resumen Comercial' : 
-              activeTab === 'orders' ? 'Pedidos' : 
-              activeTab === 'customers' ? 'Clientes' : 
-              activeTab === 'payments' ? 'Pagos' :
-              'Productos'}
-           </h1>
+      <main className="flex-1 flex flex-col min-w-0 relative bg-zinc-950">
+        <header className="h-16 md:h-20 border-b border-zinc-900 flex items-center justify-between px-4 md:px-8 flex-shrink-0 bg-zinc-950">
+           <div className="flex items-center gap-4">
+               <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden text-zinc-400 hover:text-white">
+                   <Menu size={24} />
+               </button>
+               {/* Hide Title on Mobile for clean look as requested */}
+               <h1 className="text-xl md:text-2xl font-bold text-white capitalize hidden md:block">
+                 {activeTab === 'dashboard' ? 'Resumen Comercial' : 
+                  activeTab === 'orders' ? 'Pedidos' : 
+                  activeTab === 'customers' ? 'Clientes' : 
+                  activeTab === 'payments' ? 'Pagos' :
+                  'Productos'}
+               </h1>
+           </div>
+           
            <div className="flex items-center gap-4">
               
               {/* Notifications */}
@@ -600,9 +945,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
                     {notifications.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-lime-400 rounded-full"></span>}
                 </button>
                 {showNotifications && (
-                    <div className="absolute right-0 top-full mt-2 w-80 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95">
+                    <div className="absolute right-0 top-full mt-2 w-72 md:w-80 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95">
                         <div className="p-4 border-b border-zinc-800 font-semibold text-white">Notificaciones</div>
-                        <div className="max-h-64 overflow-y-auto">
+                        <div className="max-h-64 overflow-y-auto" data-lenis-prevent>
                             {notifications.length === 0 ? (
                                 <div className="p-4 text-center text-zinc-500 text-sm">No hay notificaciones nuevas.</div>
                             ) : (
@@ -634,10 +979,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
                         <p className="text-sm font-bold text-white">{user?.name || 'Admin'}</p>
                         <p className="text-xs text-zinc-500">Super Usuario</p>
                      </div>
-                     <div className="w-10 h-10 rounded-full bg-lime-400 flex items-center justify-center text-zinc-900 font-bold shadow-lg shadow-lime-400/20">
+                     <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-lime-400 flex items-center justify-center text-zinc-900 font-bold shadow-lg shadow-lime-400/20">
                          {user?.name?.charAt(0).toUpperCase() || 'A'}
                      </div>
-                     <ChevronDown size={14} className="text-zinc-500"/>
+                     <ChevronDown size={14} className="text-zinc-500 hidden md:block"/>
                   </div>
                   
                   {showProfileMenu && (
@@ -689,65 +1034,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
                             <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={settingsForm.phone} onChange={e => setSettingsForm({...settingsForm, phone: e.target.value})} />
                         </div>
                         
-                        <div className="pt-4 flex justify-between gap-3 items-center">
+                        <div className="pt-4 flex flex-col-reverse sm:flex-row justify-between gap-3 items-center">
                              <button 
                                 type="button" 
                                 onClick={handleGenerateData} 
                                 disabled={isGenerating}
-                                className="text-xs text-lime-400 underline hover:text-lime-300 disabled:opacity-50 flex items-center gap-1"
+                                className="text-xs text-lime-400 underline hover:text-lime-300 disabled:opacity-50 flex items-center gap-1 w-full sm:w-auto justify-center"
                              >
                                  {isGenerating && <Loader2 size={10} className="animate-spin" />}
                                  Generar Datos Históricos
                              </button>
-                             <div className="flex gap-2">
-                                <button type="button" onClick={() => setShowSettingsModal(false)} className="px-4 py-2 text-zinc-400 hover:text-white font-medium text-sm">Cancelar</button>
-                                <button type="submit" className="bg-lime-400 text-zinc-900 px-6 py-2 rounded-lg font-bold hover:bg-lime-300 text-sm flex items-center gap-2">
+                             <div className="flex gap-2 w-full sm:w-auto">
+                                <button type="button" onClick={() => setShowSettingsModal(false)} className="flex-1 sm:flex-none px-4 py-2 text-zinc-400 hover:text-white font-medium text-sm bg-zinc-800/50 rounded-lg sm:bg-transparent">Cancelar</button>
+                                <button type="submit" className="flex-1 sm:flex-none bg-lime-400 text-zinc-900 px-6 py-2 rounded-lg font-bold hover:bg-lime-300 text-sm flex items-center justify-center gap-2">
                                     <Save size={16}/> Guardar
                                 </button>
                              </div>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        )}
-
-        {/* Add Product Modal */}
-        {showAddProduct && (
-            <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-                <div className="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-2xl p-8 shadow-2xl animate-in fade-in zoom-in-95">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold text-white">Agregar Producto</h2>
-                        <button onClick={() => setShowAddProduct(false)}><X className="text-zinc-500 hover:text-white" /></button>
-                    </div>
-                    <form onSubmit={handleAddProduct} className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-medium text-zinc-500 mb-1">Nombre del Producto</label>
-                            <input autoFocus required type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-medium text-zinc-500 mb-1">Precio (S/)</label>
-                                <input required type="number" step="0.01" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-zinc-500 mb-1">Categoría</label>
-                                <select className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none" value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})}>
-                                    <option>Verduras</option>
-                                    <option>Frutas</option>
-                                    <option>Hierbas</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div>
-                             <label className="block text-xs font-medium text-zinc-500 mb-1">URL de Imagen</label>
-                             <div className="flex gap-2">
-                                <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:border-lime-400 outline-none text-xs" value={newProduct.image} onChange={e => setNewProduct({...newProduct, image: e.target.value})} />
-                             </div>
-                        </div>
-                        
-                        <div className="pt-4 flex justify-end gap-3">
-                            <button type="button" onClick={() => setShowAddProduct(false)} className="px-4 py-2 text-zinc-400 hover:text-white font-medium">Cancelar</button>
-                            <button type="submit" className="bg-lime-400 text-zinc-900 px-6 py-2 rounded-lg font-bold hover:bg-lime-300">Guardar Producto</button>
                         </div>
                     </form>
                 </div>
@@ -799,12 +1101,6 @@ const SidebarItem = ({ icon, label, active, onClick }: any) => (
   >
     <span className={active ? 'text-lime-400' : ''}>{icon}</span>
     {label}
-  </button>
-);
-
-const FilterDropdown = ({ label }: { label: string }) => (
-  <button className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-300 hover:text-white text-xs font-medium">
-    {label} <ChevronDown size={12} />
   </button>
 );
 

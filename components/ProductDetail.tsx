@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Star, ShoppingBag, Truck, ShieldCheck, Heart, Minus, Plus, ChevronLeft, ChevronRight, CheckCircle, Zap, RefreshCcw } from 'lucide-react';
 import { Product, useStore } from '../context/StoreContext';
 import { Page } from '../types';
@@ -8,19 +8,21 @@ interface ProductDetailProps {
   onNavigate: (page: Page) => void;
   onProductSelect: (product: Product) => void;
   onOpenCart: () => void;
+  previewMode?: boolean; // Added for Admin Preview
 }
 
-const ProductDetail: React.FC<ProductDetailProps> = ({ product, onNavigate, onProductSelect, onOpenCart }) => {
+const ProductDetail: React.FC<ProductDetailProps> = ({ product, onNavigate, onProductSelect, onOpenCart, previewMode = false }) => {
   const { addToCart, products } = useStore();
   const [quantity, setQuantity] = useState(1);
-  const [activeTab, setActiveTab] = useState('description');
+  const [activeTab, setActiveTab] = useState('descripción');
   
   // Gallery State
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  // Simulating multiple images for the gallery
+  
+  // Simulating multiple images for the gallery if not provided
   const galleryImages = [
     product.image,
-    product.image, // Duplicate for demo purposes to show navigation
+    product.image, 
     product.image,
     product.image
   ];
@@ -28,13 +30,16 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onNavigate, onPr
   // Purchase Option State
   const [purchaseOption, setPurchaseOption] = useState<'one-time' | 'subscribe'>('one-time');
 
-  // Related Products Carousel State
+  // Related Products Logic
   const relatedScrollRef = useRef<HTMLDivElement>(null);
-  const relatedProducts = products
-    .filter(p => p.category === product.category && p.id !== product.id)
-    .slice(0, 6);
+  
+  // If manual relations exist, use them, otherwise fallback to category logic
+  const relatedProducts = product.relatedProductIds && product.relatedProductIds.length > 0
+    ? products.filter(p => product.relatedProductIds?.includes(p.id))
+    : products.filter(p => p.category === product.category && p.id !== product.id).slice(0, 6);
 
   const handleAddToCart = () => {
+    if (previewMode) return;
     for(let i = 0; i < quantity; i++) {
         addToCart(product);
     }
@@ -59,13 +64,27 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onNavigate, onPr
     }
   };
 
+  // Scroll to top on mount
+  useEffect(() => {
+      window.scrollTo(0, 0);
+  }, [product]);
+
+  // Content for Tabs
+  const tabContent: {[key: string]: string} = {
+      'descripción': product.description || "Nuestros productos son seleccionados a mano en el momento óptimo de maduración. Al elegir orgánico, no solo estás eligiendo un mejor sabor, sino que estás apoyando prácticas agrícolas que regeneran el suelo.",
+      'información nutricional': product.nutritionInfo || "Calorías: 25\nGrasas: 0g\nCarbohidratos: 5g",
+      'envíos': product.shippingInfo || "Envío estándar: 2-3 días hábiles.\nEnvío express: 24 horas.\nGratis en pedidos mayores a S/100."
+  };
+
   return (
-    <div className="bg-white min-h-screen pt-24 pb-20">
+    <div className={`bg-white min-h-screen ${previewMode ? 'pt-0' : 'pt-24'} pb-20`}>
       <div className="max-w-screen-2xl mx-auto px-6 lg:px-12">
         {/* Breadcrumb / Back */}
-        <button onClick={() => onNavigate('shop')} className="flex items-center gap-2 text-zinc-500 hover:text-zinc-900 mb-8 font-medium">
-           <ArrowLeft size={18} /> Volver a Tienda
-        </button>
+        {!previewMode && (
+            <button onClick={() => onNavigate('shop')} className="flex items-center gap-2 text-zinc-500 hover:text-zinc-900 mb-8 font-medium">
+            <ArrowLeft size={18} /> Volver a Tienda
+            </button>
+        )}
 
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 mb-20">
            
@@ -247,8 +266,9 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onNavigate, onPr
                      <button onClick={() => setQuantity(quantity + 1)} className="text-zinc-400 hover:text-zinc-900"><Plus size={18}/></button>
                  </div>
                  <button 
-                   onClick={() => { handleAddToCart(); onNavigate('checkout'); }}
-                   className="flex-1 bg-lime-400 hover:bg-lime-300 text-zinc-900 font-bold h-14 rounded-full transition-all shadow-lg shadow-lime-400/20 flex items-center justify-center gap-2 text-lg"
+                   onClick={() => { handleAddToCart(); if(!previewMode) onNavigate('checkout'); }}
+                   className={`flex-1 bg-lime-400 hover:bg-lime-300 text-zinc-900 font-bold h-14 rounded-full transition-all shadow-lg shadow-lime-400/20 flex items-center justify-center gap-2 text-lg ${previewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                   disabled={previewMode}
                  >
                     <ShoppingBag size={20} strokeWidth={2.5} />
                     {purchaseOption === 'subscribe' ? 'Suscribir Ahora' : 'Agregar al Carrito'}
@@ -266,25 +286,25 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onNavigate, onPr
         {/* Tabs / Details */}
         <div className="mb-24">
            <div className="flex border-b border-zinc-200 mb-8 overflow-x-auto">
-              {['Descripción', 'Información Nutricional', 'Envíos'].map(tab => (
+              {Object.keys(tabContent).map(tab => (
                  <button 
                    key={tab}
-                   onClick={() => setActiveTab(tab.toLowerCase().split(' ')[0])}
-                   className={`px-8 py-4 font-medium text-lg relative whitespace-nowrap ${activeTab === tab.toLowerCase().split(' ')[0] ? 'text-zinc-900' : 'text-zinc-400 hover:text-zinc-600'}`}
+                   onClick={() => setActiveTab(tab)}
+                   className={`px-8 py-4 font-medium text-lg relative whitespace-nowrap capitalize ${activeTab === tab ? 'text-zinc-900' : 'text-zinc-400 hover:text-zinc-600'}`}
                  >
                     {tab}
-                    {activeTab === tab.toLowerCase().split(' ')[0] && (
+                    {activeTab === tab && (
                        <div className="absolute bottom-0 left-0 w-full h-0.5 bg-zinc-900"></div>
                     )}
                  </button>
               ))}
            </div>
            
-           <div className="bg-zinc-50 rounded-3xl p-8 lg:p-12">
-              <h3 className="text-xl font-bold text-zinc-900 mb-4">Detalles del Producto</h3>
-              <p className="text-zinc-600 leading-relaxed max-w-4xl">
-                 Nuestros productos son seleccionados a mano en el momento óptimo de maduración. Al elegir orgánico, no solo estás eligiendo un mejor sabor, sino que estás apoyando prácticas agrícolas que regeneran el suelo y protegen la biodiversidad local. Ideal para ensaladas frescas, jugos detox o como acompañamiento saludable para tus comidas principales.
-              </p>
+           <div className="bg-zinc-50 rounded-3xl p-8 lg:p-12 min-h-[200px]">
+              <h3 className="text-xl font-bold text-zinc-900 mb-4 capitalize">{activeTab}</h3>
+              <div className="text-zinc-600 leading-relaxed max-w-4xl whitespace-pre-wrap">
+                 {tabContent[activeTab]}
+              </div>
            </div>
         </div>
 
@@ -308,7 +328,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onNavigate, onPr
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
            >
               {relatedProducts.length > 0 ? relatedProducts.map(relProduct => (
-                 <div key={relProduct.id} className="min-w-[280px] md:min-w-[320px] snap-start group cursor-pointer" onClick={() => onProductSelect(relProduct)}>
+                 <div key={relProduct.id} className="min-w-[280px] md:min-w-[320px] snap-start group cursor-pointer" onClick={() => !previewMode && onProductSelect(relProduct)}>
                     <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-zinc-100 mb-4 relative">
                        <img src={relProduct.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                        
